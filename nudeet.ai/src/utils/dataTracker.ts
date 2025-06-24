@@ -1,4 +1,4 @@
-// utils/dataTracker.ts - Fixed TypeScript types for client-side data tracking
+// utils/dataTracker.ts - Updated for Nudeet with face reference tracking
 import { loadUserData } from './userStorage'
 
 // Define proper types instead of any
@@ -22,6 +22,7 @@ interface GenerationTrackingData {
   deviceId: string;
   pose: string;
   gender: string;
+  useFaceReference?: boolean; // NEW: Face reference tracking
   success: boolean;
   error?: string;
   timestamp: string;

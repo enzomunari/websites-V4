@@ -3,7 +3,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Users, Image as ImageIcon, Activity, Shield, Plus, Minus, Search, RefreshCw, Ban, Check, TrendingUp } from 'lucide-react';
 import { getAllUsers, updateUserCredits } from '@/utils/userStorage'
 
-
 interface UserData {
   userId: string;
   deviceId: string;
@@ -79,9 +78,6 @@ interface QueueData {
   };
   timestamp: string;
 }
-
-const usersData = await getAllUsers()
-console.log('Loaded users:', Object.keys(usersData).length) // Use the variable
 
 const AdminDashboard: React.FC = () => {
   const [users, setUsers] = useState<UserData[]>([]);
@@ -169,6 +165,8 @@ const AdminDashboard: React.FC = () => {
       if (usersRes.ok) {
         const usersData = await usersRes.json();
         setUsers(Object.values(usersData));
+        // FIXED: Move the console.log here inside the async function
+        console.log('Loaded users:', Object.keys(usersData).length);
       }
       
       // Fetch generations

@@ -1,7 +1,7 @@
 // utils/creditsConfig.ts - Easy toggle for blocking credit purchases
 export const CREDITS_CONFIG = {
-  // 🔧 EASY TOGGLE: Set this to false to block credit purchases
-  ALLOW_CREDIT_PURCHASE: false, // Change to true when payment processor is ready
+  // 🔧 EASY TOGGLE: Set this to true to enable cross-origin payment
+  ALLOW_CREDIT_PURCHASE: true, // Changed from false to true
   
   // Custom message when credits are blocked
   BLOCKED_MESSAGE: "Credit purchases are temporarily unavailable. We're working on integrating a secure payment processor. Please check back soon!",

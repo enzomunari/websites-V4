@@ -1,4 +1,4 @@
-// components/Modals.tsx - Updated with credits blocking
+// components/Modals.tsx - Complete file with working token creation like Deeplab
 "use client"
 
 import { X, Shield, ChevronLeft, ChevronRight, Download } from 'lucide-react'
@@ -6,8 +6,8 @@ import { UltraSimpleImage } from './UltraSimpleImage'
 import { LegalDocuments } from './LegalDocuments'
 import { ConsentChecks } from '@/types'
 import { useEffect, useCallback, useState, useRef } from 'react'
-// ADDED: Import credits blocking functions
 import { canPurchaseCredits, getBlockedMessage } from '@/utils/creditsConfig'
+import { loadUserData } from '@/utils/userStorage'
 
 interface ModalsProps {
   // Consent Modal
@@ -180,16 +180,58 @@ export const Modals: React.FC<ModalsProps> = ({
   const canGoPrev = currentGalleryIndex > 0;
   const canGoNext = currentGalleryIndex < totalImages - 1;
 
-  // UPDATED: Handle buy credits with blocking check
-  const handleBuyCreditsWithBlocking = (amount: number) => {
-    if (!canPurchaseCredits()) {
-      setCreditsBlockedModalOpen(true)
-      onBuyCreditsClose() // Close the buy modal
-      return
+  // WORKING TOKEN CREATION FUNCTIONS - EXACTLY LIKE DEEPLAB
+  const handleBuyCreditsWithToken = async (amount: number, productId: string) => {
+    try {
+      const userData = await loadUserData();
+      if (!userData) {
+        alert('Please wait for user data to load...');
+        return;
+      }
+
+      const popup = window.open('', '_blank');
+      if (!popup) {
+        alert('Please allow popups for this site to complete your purchase');
+        return;
+      }
+      
+      popup.document.write(`
+        <html>
+          <head><title>Processing Payment...</title></head>
+          <body style="font-family: Arial; text-align: center; padding: 50px;">
+            <h2>🔄 Setting up your payment...</h2>
+            <p>Please wait while we redirect you to the secure payment page.</p>
+          </body>
+        </html>
+      `);
+
+      const tokenResponse = await fetch('https://deeplab-ai.com/api/purchase-tokens', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: userData.userId,
+          credits: amount,
+          site: 'nudeet'
+        })
+      });
+
+      if (!tokenResponse.ok) {
+        popup.close();
+        throw new Error('Failed to create purchase token');
+      }
+
+      const { token } = await tokenResponse.json();
+      const returnUrl = `https://deeplab-ai.com/studio/success?token=${token}`;
+      const payhipUrl = `https://payhip.com/b/${productId}?return_url=${encodeURIComponent(returnUrl)}`;
+      
+      popup.location.href = payhipUrl;
+      onBuyCreditsClose();
+      
+    } catch (error) {
+      console.error('❌ Failed to redirect to payment:', error);
+      alert('Failed to redirect to payment. Please try again.');
     }
-    
-    onBuyCredits(amount)
-  }
+  };
 
   return (
     <>
@@ -389,7 +431,6 @@ export const Modals: React.FC<ModalsProps> = ({
                 </div>
               )}
               
-              {/* UPDATED: Buy credits button with blocking check */}
               <button
                 onClick={() => {
                   if (!canPurchaseCredits()) {
@@ -413,7 +454,7 @@ export const Modals: React.FC<ModalsProps> = ({
         </div>
       )}
       
-      {/* UPDATED: Buy Credits Modal with blocking functionality */}
+      {/* Buy Credits Modal - WORKING TOKEN CREATION LIKE DEEPLAB */}
       {buyModalOpen && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div className="bg-slate-800 text-white p-8 rounded-2xl shadow-2xl max-w-md w-full border border-blue-600 relative">
@@ -427,7 +468,7 @@ export const Modals: React.FC<ModalsProps> = ({
             <div className="space-y-4">
               <button
                 className="w-full p-4 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-lg transition-all"
-                onClick={() => handleBuyCreditsWithBlocking(3)}
+                onClick={() => handleBuyCreditsWithToken(3, 'IHKvU')}
               >
                 <div className="flex justify-between items-center">
                   <span>3 Credits</span>
@@ -437,7 +478,7 @@ export const Modals: React.FC<ModalsProps> = ({
               
               <button
                 className="w-full p-4 bg-blue-600 hover:bg-blue-700 rounded-xl font-bold text-lg transition-all relative"
-                onClick={() => handleBuyCreditsWithBlocking(10)}
+                onClick={() => handleBuyCreditsWithToken(10, 'VBfyi')}
               >
                 <div className="absolute -top-2 -right-2 bg-orange-500 text-white text-xs px-2 py-1 rounded-full">
                   POPULAR
@@ -450,14 +491,14 @@ export const Modals: React.FC<ModalsProps> = ({
               
               <button
                 className="w-full p-4 bg-purple-600 hover:bg-purple-700 rounded-xl font-bold text-lg transition-all relative"
-                onClick={() => handleBuyCreditsWithBlocking(20)}
+                onClick={() => handleBuyCreditsWithToken(15, 'o0XfZ')}
               >
                 <div className="absolute -top-2 -right-2 bg-green-500 text-white text-xs px-2 py-1 rounded-full">
                   BEST VALUE
                 </div>
                 <div className="flex justify-between items-center">
-                  <span>20 Credits</span>
-                  <span className="text-green-400">$14.99</span>
+                  <span>15 Credits</span>
+                  <span className="text-green-400">$10.99</span>
                 </div>
               </button>
             </div>
@@ -465,7 +506,7 @@ export const Modals: React.FC<ModalsProps> = ({
         </div>
       )}
 
-      {/* ADDED: Credits Blocked Modal */}
+      {/* Credits Blocked Modal */}
       {creditsBlockedModalOpen && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div className="bg-slate-800 text-white p-8 rounded-2xl shadow-2xl max-w-md w-full border border-orange-600 relative">
@@ -495,7 +536,7 @@ export const Modals: React.FC<ModalsProps> = ({
         </div>
       )}
 
-      {/* Image Viewer with Navigation - FIXED: No cropping, dots at top */}
+      {/* Image Viewer with Navigation */}
       {imageViewerOpen && (
         <div 
           className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center"
@@ -531,7 +572,6 @@ export const Modals: React.FC<ModalsProps> = ({
             <ChevronLeft className="w-8 h-8" />
           </button>
           
-          {/* FIXED: Image container using full viewport */}
           <div className="w-full h-full flex items-center justify-center">
             {galleryViewImage && (
               <div className="relative group w-full h-full flex items-center justify-center">

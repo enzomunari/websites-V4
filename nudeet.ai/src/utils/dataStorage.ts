@@ -1,4 +1,4 @@
-// utils/dataStorage.ts - Data storage utilities for tracking and admin
+// utils/dataStorage.ts - Data storage utilities for tracking and admin - FIXED EXPORTS
 import fs from 'fs/promises'
 import path from 'path'
 
@@ -94,6 +94,40 @@ export async function saveUser(userData: UserData): Promise<void> {
   console.log('💾 User data saved:', userData.userId)
 }
 
+// MISSING EXPORTS - Add these functions that are being imported
+export async function getUserData(deviceId: string): Promise<UserData | null> {
+  try {
+    const users = await readJsonFile<Record<string, UserData>>(USERS_FILE, {})
+    const userData = Object.values(users).find((u: UserData) => u.deviceId === deviceId)
+    
+    if (userData) {
+      console.log(`✅ Found user: ${userData.userId}, Credits: ${userData.credits}`)
+      return userData
+    } else {
+      console.log(`❌ No user found for device ID: ${deviceId}`)
+      return null
+    }
+  } catch (error) {
+    console.error('Error getting user data:', error)
+    return null
+  }
+}
+
+export async function saveUserData(userData: UserData): Promise<void> {
+  return await saveUser(userData)
+}
+
+// Get user by user ID
+export async function getUserById(userId: string): Promise<UserData | null> {
+  try {
+    const users = await readJsonFile<Record<string, UserData>>(USERS_FILE, {})
+    return users[userId] || null
+  } catch (error) {
+    console.error('Error getting user by ID:', error)
+    return null
+  }
+}
+
 // Log generation event
 export async function logGeneration(generationData: Omit<GenerationEvent, 'id' | 'site'>): Promise<void> {
   const generations = await readJsonFile<GenerationEvent[]>(GENERATIONS_FILE, [])
@@ -143,25 +177,77 @@ export async function getUsers(): Promise<Record<string, UserData>> {
   return await readJsonFile<Record<string, UserData>>(USERS_FILE, {})
 }
 
-// Get single user
-export async function getUser(userId: string): Promise<UserData | null> {
+// Get all generations
+export async function getGenerations(): Promise<GenerationEvent[]> {
+  return await readJsonFile<GenerationEvent[]>(GENERATIONS_FILE, [])
+}
+
+// Get all user events
+export async function getUserEvents(): Promise<UserEvent[]> {
+  return await readJsonFile<UserEvent[]>(EVENTS_FILE, [])
+}
+
+// Get site statistics
+export async function getStats() {
   const users = await getUsers()
-  return users[userId] || null
+  const generations = await getGenerations()
+  const events = await getUserEvents()
+  
+  const userList = Object.values(users)
+  const totalUsers = userList.length
+  const activeUsers = userList.filter(u => {
+    const lastVisit = new Date(u.lastVisitDate)
+    const daysSinceVisit = (Date.now() - lastVisit.getTime()) / (1000 * 60 * 60 * 24)
+    return daysSinceVisit <= 7
+  }).length
+  
+  const totalCredits = userList.reduce((sum, u) => sum + u.credits, 0)
+  const totalGenerations = generations.length
+  const successfulGenerations = generations.filter(g => g.success).length
+  
+  return {
+    totalUsers,
+    activeUsers,
+    totalCredits,
+    totalGenerations,
+    successfulGenerations,
+    successRate: totalGenerations > 0 ? ((successfulGenerations / totalGenerations) * 100).toFixed(1) : '0',
+    totalEvents: events.length
+  }
 }
 
 // Update user credits
-export async function updateUserCredits(userId: string, credits: number): Promise<boolean> {
+export async function updateUserCredits(userId: string, newCredits: number): Promise<boolean> {
   try {
     const users = await getUsers()
     if (users[userId]) {
-      users[userId].credits = credits
+      users[userId].credits = newCredits
       users[userId].lastSyncDate = new Date().toISOString()
       await writeJsonFile(USERS_FILE, users)
+      console.log(`💰 Updated user ${userId} credits to ${newCredits}`)
       return true
     }
     return false
   } catch (error) {
     console.error('Error updating user credits:', error)
+    return false
+  }
+}
+
+// Add credits to user
+export async function addUserCredits(userId: string, amount: number): Promise<boolean> {
+  try {
+    const users = await getUsers()
+    if (users[userId]) {
+      users[userId].credits += amount
+      users[userId].lastSyncDate = new Date().toISOString()
+      await writeJsonFile(USERS_FILE, users)
+      console.log(`💰 Added ${amount} credits to user ${userId}. New total: ${users[userId].credits}`)
+      return true
+    }
+    return false
+  } catch (error) {
+    console.error('Error adding user credits:', error)
     return false
   }
 }
@@ -174,71 +260,62 @@ export async function blockUser(userId: string, blocked: boolean): Promise<boole
       users[userId].isBlocked = blocked
       users[userId].lastSyncDate = new Date().toISOString()
       await writeJsonFile(USERS_FILE, users)
+      console.log(`🚫 ${blocked ? 'Blocked' : 'Unblocked'} user ${userId}`)
       return true
     }
     return false
   } catch (error) {
-    console.error('Error blocking user:', error)
+    console.error('Error blocking/unblocking user:', error)
     return false
   }
 }
 
-// Get generations
-export async function getGenerations(): Promise<GenerationEvent[]> {
-  return await readJsonFile<GenerationEvent[]>(GENERATIONS_FILE, [])
-}
-
-// Get user events
-export async function getUserEvents(): Promise<UserEvent[]> {
-  return await readJsonFile<UserEvent[]>(EVENTS_FILE, [])
-}
-
-// Get site statistics
-export async function getStats(): Promise<{
-  totalUsers: number
-  totalGenerations: number
-  totalSuccessfulGenerations: number
-  totalFailedGenerations: number
-  totalCreditsUsed: number
-  lastUpdated: string
-}> {
-  const users = await getUsers()
-  const generations = await getGenerations()
-  
-  const totalUsers = Object.keys(users).length
-  const totalGenerations = generations.length
-  const successfulGenerations = generations.filter(g => g.success).length
-  const failedGenerations = generations.filter(g => !g.success).length
-  const totalCreditsUsed = Object.values(users).reduce((sum, user) => sum + user.totalGenerations, 0)
-  
-  return {
-    totalUsers,
-    totalGenerations,
-    totalSuccessfulGenerations: successfulGenerations,
-    totalFailedGenerations: failedGenerations,
-    totalCreditsUsed,
-    lastUpdated: new Date().toISOString()
-  }
-}
-
 // Clean old data
-export async function cleanOldData(): Promise<void> {
+export async function cleanOldData() {
   try {
-    const oneMonthAgo = new Date()
-    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1)
-    
-    // Clean old generations
-    const generations = await getGenerations()
-    const recentGenerations = generations.filter(g => new Date(g.timestamp) > oneMonthAgo)
-    await writeJsonFile(GENERATIONS_FILE, recentGenerations)
+    const cutoffDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) // 30 days ago
     
     // Clean old events
     const events = await getUserEvents()
-    const recentEvents = events.filter(e => new Date(e.timestamp) > oneMonthAgo)
-    await writeJsonFile(EVENTS_FILE, recentEvents)
+    const oldEventCount = events.length
+    const recentEvents = events.filter(event => 
+      new Date(event.timestamp) > cutoffDate
+    )
+    const eventsRemoved = oldEventCount - recentEvents.length
     
-    console.log('🧹 Old data cleaned')
+    if (eventsRemoved > 0) {
+      await writeJsonFile(EVENTS_FILE, recentEvents)
+    }
+    
+    // Clean old generations
+    const generations = await getGenerations()
+    const oldGenCount = generations.length
+    const recentGenerations = generations.filter(gen => 
+      new Date(gen.timestamp) > cutoffDate
+    )
+    const generationsRemoved = oldGenCount - recentGenerations.length
+    
+    if (generationsRemoved > 0) {
+      await writeJsonFile(GENERATIONS_FILE, recentGenerations)
+    }
+    
+    const message = `Cleaned ${eventsRemoved} old events and ${generationsRemoved} old generations (older than 30 days)`
+    console.log('🧹 ' + message)
+    
+    return {
+      eventsRemoved,
+      generationsRemoved,
+      message
+    }
   } catch (error) {
     console.error('Error cleaning old data:', error)
+    return {
+      eventsRemoved: 0,
+      generationsRemoved: 0,
+      message: 'Error cleaning old data: ' + (error instanceof Error ? error.message : 'Unknown error')
+    }
   }
 }
+
+// Export types for use in other files
+export type { UserData, GenerationEvent, UserEvent }
