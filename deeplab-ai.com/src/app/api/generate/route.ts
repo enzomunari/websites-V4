@@ -62,11 +62,13 @@ async function readUserFromDatabase(deviceId: string) {
     // Find user by device ID
     const userData = Object.values(users).find((u: any) => u.deviceId === deviceId)
     
-    if (userData) {
-      console.log(`✅ Found user data: ${userData.userId}, Credits: ${userData.credits}`)
-      return userData
-    } else {
-      console.log(`❌ No user found for device ID: ${deviceId}`)
+   if (userData) {
+  // FIXED: Add type assertion to resolve TypeScript error
+  const typedUserData = userData as { userId: string; credits: number; [key: string]: any }
+  console.log(`✅ Found user data: ${typedUserData.userId}, Credits: ${typedUserData.credits}`)
+  return userData
+} else {
+  console.log(`❌ No user found for device ID: ${deviceId}`)
       console.log(`🔍 Available device IDs:`, Object.values(users).map((u: any) => u.deviceId))
       return null
     }
@@ -567,22 +569,25 @@ export async function POST(request: NextRequest) {
     console.log(`🔍 Checking credits for user: ${userId}, device: ${deviceId}`)
     const userData = await readUserFromDatabase(deviceId)
 
-    if (!userData || userData.credits < 1) {
-      console.log(`❌ User ${userId} has insufficient credits: ${userData?.credits || 0}`)
+// FIXED: Add type assertion to resolve TypeScript error
+const typedUserData = userData as { userId: string; credits: number; isBlocked?: boolean; [key: string]: any } | null
+
+if (!typedUserData || typedUserData.credits < 1) {
+  console.log(`❌ User ${userId} has insufficient credits: ${typedUserData?.credits || 0}`)
       return addCorsHeaders(NextResponse.json(
         { 
           error: 'Insufficient credits', 
-          creditsRemaining: userData?.credits || 0,
+          creditsRemaining: typedUserData?.credits || 0,
           message: 'You need at least 1 credit to generate a professional headshot'
         },
         { status: 402 }
       ))
     }
 
-    console.log(`✅ User ${userId} has ${userData.credits} credits, proceeding with generation`)
+    console.log(`✅ User ${userId} has ${typedUserData.credits} credits, proceeding with generation`)
 
     // Check if user is blocked
-    if (userData.isBlocked) {
+    if (typedUserData.isBlocked) {
       console.log(`❌ User ${userId} is blocked`)
       return addCorsHeaders(NextResponse.json(
         { error: 'Account blocked', message: 'Your account has been blocked. Please contact support.' },
@@ -605,7 +610,7 @@ export async function POST(request: NextRequest) {
       const imageUrl = await submitToComfyUI(finalWorkflow)
       
       // Success - deduct credit using direct database access
-      const newCredits = await consumeUserCredit(userData.userId)
+      const newCredits = await consumeUserCredit(typedUserData.userId)
       
       // FIXED: Use correct function signature with correct parameter order
       await recordGeneration(userId, deviceId, 'deeplab', true, {
@@ -629,7 +634,7 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(NextResponse.json({
         success: true,
         imageUrl,
-        creditsRemaining: newCredits !== null ? newCredits : userData.credits - 1,
+        creditsRemaining: newCredits !== null ? newCredits : typedUserData.credits - 1,
         message: 'Professional headshot generated successfully using YOUR workflow!'
       }))
 
@@ -670,7 +675,7 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(NextResponse.json({
         error: userFriendlyError,
         details: errorMessage,
-        creditsRemaining: userData.credits // Don't deduct credits on failure
+        creditsRemaining: typedUserData.credits // Don't deduct credits on failure
       }, { status: 500 }))
     }
 

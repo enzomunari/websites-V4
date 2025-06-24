@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
       ))
     }
 
-    const userData = await getUserData(userId, deviceId)
+    const userData = await getUserData(deviceId)
     
     return addCorsHeaders(NextResponse.json(userData))
 
@@ -62,14 +62,20 @@ export async function POST(request: NextRequest) {
     console.log(`👤 Syncing user data for user: ${userId}`)
 
     // Get or create user data in shared storage
-    const userData = await getUserData(userId, deviceId)
-    
-    console.log(`✅ User data synced:`, {
-      userId: userData.userId,
-      credits: userData.credits,
-      totalGenerations: userData.totalGenerations,
-      isBlocked: userData.isBlocked
-    })
+    const userData = await getUserData(deviceId)
+
+if (!userData) {
+  return addCorsHeaders(NextResponse.json({ 
+    error: 'User not found' 
+  }, { status: 404 }))
+}
+
+console.log(`✅ User data synced:`, {
+  userId: userData.userId,
+  credits: userData.credits,
+  totalGenerations: userData.totalGenerations,
+  isBlocked: userData.isBlocked
+})
 
     return addCorsHeaders(NextResponse.json(userData))
 

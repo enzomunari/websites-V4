@@ -1,6 +1,6 @@
 'use client'
 
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { 
   ArrowLeft, 
@@ -14,8 +14,155 @@ import {
   Award,
   Crown
 } from 'lucide-react'
+import { 
+  loadUnifiedUserData,
+  refreshUserData,
+  canUseFreeTrial,
+  markFreeTrialUsed
+} from '../../utils/unifiedUserStorage'
+
+// Enhanced localStorage with error handling
+const safeLocalStorage = {
+  getItem: (key: string): string | null => {
+    if (typeof window === 'undefined') return null
+    try {
+      return localStorage.getItem(key)
+    } catch (error) {
+      console.warn(`localStorage.getItem failed for key ${key}:`, error)
+      return null
+    }
+  },
+  setItem: (key: string, value: string): void => {
+    if (typeof window === 'undefined') return
+    try {
+      localStorage.setItem(key, value)
+    } catch (error) {
+      console.warn(`localStorage.setItem failed for key ${key}:`, error)
+    }
+  },
+  removeItem: (key: string): void => {
+    if (typeof window === 'undefined') return
+    try {
+      localStorage.removeItem(key)
+    } catch (error) {
+      console.warn(`localStorage.removeItem failed for key ${key}:`, error)
+    }
+  }
+}
+
+interface UserData {
+  userId: string;
+  deviceId: string;
+  credits: number;
+  lastFreeTrialDate: string | null;
+  firstVisitDate: string;
+  lastVisitDate: string;
+  totalGenerations: number;
+  totalFreeTrialsUsed: number;
+  isBlocked: boolean;
+  sitesUsed: string[];
+  lastSyncDate: string;
+}
 
 const PricingPage: React.FC = () => {
+  const [userData, setUserData] = useState<UserData | null>(null)
+
+  // 🔧 FIXED: Get user data using unified system
+  const getUserData = async (): Promise<UserData | null> => {
+    if (typeof window === 'undefined') return null
+    
+    console.log('📋 Force loading fresh unified user data for Deeplab...')
+    
+    try {
+      const userData = await refreshUserData()
+      
+      safeLocalStorage.setItem('shared_user_id', userData.userId)
+      safeLocalStorage.setItem('shared_device_id', userData.deviceId)
+      safeLocalStorage.setItem('shared_credits', userData.credits.toString())
+      safeLocalStorage.setItem('shared_total_generations', userData.totalGenerations.toString())
+      safeLocalStorage.setItem('shared_free_trials_used', userData.totalFreeTrialsUsed.toString())
+      
+      console.log('✅ Fresh unified user data loaded:', userData.userId, `Credits: ${userData.credits}`)
+      
+      return userData
+    } catch (error) {
+      console.error('Error loading unified user data:', error)
+      return null
+    }
+  }
+
+  useEffect(() => {
+    const loadUserData = async () => {
+      console.log('🔄 Loading user data on pricing page mount...')
+      const data = await getUserData()
+      setUserData(data)
+      
+      if (data) {
+        console.log('👤 Pricing page loaded user:', data.userId, 'Credits:', data.credits)
+      }
+    }
+    
+    loadUserData()
+  }, [])
+
+  // 🔧 FIXED: handleBuyCreditsFixed with popup-first approach
+  const handleBuyCreditsFixed = async (credits: number, productId: string, payhipProductCode: string) => {
+    if (!userData) return
+    
+    try {
+      console.log(`🎫 Generating purchase token for ${credits} credits...`)
+      
+      // ⚡ CRITICAL FIX: Store the window reference BEFORE any async operations
+      const popup = window.open('', '_blank')
+      if (!popup) {
+        alert('Please allow popups for this site to complete your purchase')
+        return
+      }
+      
+      // Show loading in the popup window
+      popup.document.write(`
+        <html>
+          <head><title>Processing Payment...</title></head>
+          <body style="font-family: Arial; text-align: center; padding: 50px;">
+            <h2>🔄 Setting up your payment...</h2>
+            <p>Please wait while we redirect you to the secure payment page.</p>
+          </body>
+        </html>
+      `)
+      
+      const response = await fetch('/api/purchase-tokens', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: userData.userId,
+          deviceId: userData.deviceId,
+          credits: credits,
+          productId: productId,
+          site: 'deeplab'
+        })
+      })
+      
+      if (!response.ok) {
+        popup.close()
+        throw new Error('Failed to create purchase token')
+      }
+      
+      const { token } = await response.json()
+      console.log(`✅ Token generated: ${token}`)
+      
+      const returnUrl = `https://deeplab-ai.com/studio/success?token=${token}`
+      const payhipUrl = `https://payhip.com/b/${payhipProductCode}?return_url=${encodeURIComponent(returnUrl)}`
+      
+      // Redirect the already-opened popup
+      popup.location.href = payhipUrl
+      console.log('🔗 Payhip URL:', payhipUrl)
+      
+    } catch (error) {
+      console.error('❌ Failed to initiate purchase:', error)
+      alert('Failed to initiate purchase. Please try again.')
+    }
+  }
+
   const plans = [
     {
       name: 'Starter Pack',
@@ -28,8 +175,7 @@ const PricingPage: React.FC = () => {
         'High-resolution downloads',
         'Instant generation'
       ],
-      popular: false,
-      gradient: 'from-blue-500 to-blue-600'
+      popular: false
     },
     {
       name: 'Popular Pack',
@@ -43,8 +189,7 @@ const PricingPage: React.FC = () => {
         'Priority processing',
         'Multiple variations'
       ],
-      popular: true,
-      gradient: 'from-blue-500 to-purple-600'
+      popular: true
     },
     {
       name: 'Pro Pack',
@@ -59,54 +204,85 @@ const PricingPage: React.FC = () => {
         'Multiple variations',
         'Premium support'
       ],
-      popular: false,
-      gradient: 'from-purple-500 to-purple-600'
+      popular: false
     }
   ]
 
   const allFeatures = [
     {
-      icon: <Shield className="w-6 h-6" />,
+      icon: <Shield style={{ width: '24px', height: '24px' }} />,
       title: 'Secure & Private',
       description: 'Your photos are processed securely and deleted after generation'
     },
     {
-      icon: <Zap className="w-6 h-6" />,
+      icon: <Zap style={{ width: '24px', height: '24px' }} />,
       title: '30-second Generation',
       description: 'Get professional headshots in under 30 seconds'
     },
     {
-      icon: <Sparkles className="w-6 h-6" />,
+      icon: <Sparkles style={{ width: '24px', height: '24px' }} />,
       title: 'Professional Quality',
       description: 'Studio-quality results perfect for LinkedIn and business use'
     },
     {
-      icon: <Camera className="w-6 h-6" />,
+      icon: <Camera style={{ width: '24px', height: '24px' }} />,
       title: 'HD Downloads',
       description: 'High-resolution images suitable for professional use and printing'
     }
   ]
 
   return (
-    <div className="min-h-screen bg-white">
+    <div style={{ minHeight: '100vh', backgroundColor: 'white', fontFamily: 'system-ui, sans-serif' }}>
       {/* Header */}
-      <header className="bg-white border-b border-gray-100 sticky top-0 z-40 backdrop-blur-lg bg-white/95">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="flex justify-between items-center py-4">
-            <Link href="/" className="flex items-center gap-3 text-decoration-none">
-              <ArrowLeft className="w-5 h-5 text-gray-500" />
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg">
-                <Sparkles className="w-5 h-5 text-white" />
+     <header style={{ 
+  backgroundColor: 'rgba(255, 255, 255, 0.95)', 
+  borderBottom: '1px solid #f3f4f6', 
+  position: 'sticky', 
+  top: 0, 
+  zIndex: 40, 
+  backdropFilter: 'blur(16px)'
+}}>
+        <div style={{ maxWidth: '1152px', margin: '0 auto', padding: '0 24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 0' }}>
+            <Link href="/" style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '12px', 
+              textDecoration: 'none',
+              color: 'inherit'
+            }}>
+              <ArrowLeft style={{ width: '20px', height: '20px', color: '#6b7280' }} />
+              <div style={{ 
+                width: '40px', 
+                height: '40px', 
+                background: 'linear-gradient(to bottom right, #3b82f6, #8b5cf6)', 
+                borderRadius: '12px', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' 
+              }}>
+                <Sparkles style={{ width: '20px', height: '20px', color: 'white' }} />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-gray-900">Deeplab-ai</h1>
-                <p className="text-xs text-gray-500 font-medium">Pricing</p>
+                <h1 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', margin: 0 }}>Deeplab-ai</h1>
+                <p style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', margin: 0 }}>Pricing</p>
               </div>
             </Link>
             
             <Link
               href="/studio"
-              className="bg-gradient-to-r from-blue-500 to-purple-600 text-white px-6 py-2.5 rounded-xl font-semibold text-sm shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all"
+              style={{ 
+                background: 'linear-gradient(to right, #3b82f6, #8b5cf6)', 
+                color: 'white', 
+                padding: '10px 24px', 
+                borderRadius: '12px', 
+                fontWeight: '600', 
+                fontSize: '14px', 
+                boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', 
+                textDecoration: 'none',
+                transition: 'all 0.3s ease'
+              }}
             >
               Create Headshots
             </Link>
@@ -114,118 +290,181 @@ const PricingPage: React.FC = () => {
         </div>
       </header>
 
-      <div className="max-w-6xl mx-auto px-6 py-12">
+      <div style={{ maxWidth: '1152px', margin: '0 auto', padding: '0 24px 48px 24px' }}>
         {/* Hero Section */}
-        <div className="text-center mb-16">
-          <div className="inline-flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-full px-4 py-2 mb-6">
-            <Crown className="w-4 h-4 text-blue-600" />
-            <span className="text-sm font-semibold text-blue-600 uppercase tracking-wide">
+        <div style={{ textAlign: 'center', marginBottom: '64px', paddingTop: '48px' }}>
+          <div style={{ 
+            display: 'inline-flex', 
+            alignItems: 'center', 
+            gap: '8px', 
+            backgroundColor: '#dbeafe', 
+            border: '1px solid #93c5fd', 
+            borderRadius: '9999px', 
+            padding: '8px 16px', 
+            marginBottom: '24px' 
+          }}>
+            <Crown style={{ width: '16px', height: '16px', color: '#2563eb' }} />
+            <span style={{ fontSize: '14px', fontWeight: '600', color: '#2563eb', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Professional AI Headshots
             </span>
           </div>
           
-          <h1 className="text-5xl font-black text-gray-900 mb-6 leading-tight">
-            Choose Your <span className="bg-gradient-to-r from-blue-500 to-purple-600 bg-clip-text text-transparent">Perfect Plan</span>
+          <h1 style={{ fontSize: '3rem', fontWeight: '900', color: '#111827', marginBottom: '24px', lineHeight: '1.1' }}>
+            Choose Your <span style={{ background: 'linear-gradient(to right, #3b82f6, #8b5cf6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Perfect Plan</span>
           </h1>
           
-          <p className="text-xl text-gray-600 max-w-2xl mx-auto mb-8">
+          <p style={{ fontSize: '20px', color: '#6b7280', maxWidth: '640px', margin: '0 auto 32px', lineHeight: '1.6' }}>
             Get professional headshots in minutes. No contracts, no hidden fees. 
             Pay only for what you need.
           </p>
 
           {/* Stats */}
-          <div className="flex justify-center items-center gap-8 text-sm text-gray-500 mb-8">
-            <div className="flex items-center gap-2">
-              <Users className="w-4 h-4 text-green-500" />
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '32px', fontSize: '14px', color: '#6b7280', marginBottom: '32px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Users style={{ width: '16px', height: '16px', color: '#10b981' }} />
               <span>250,000+ users</span>
             </div>
-            <div className="flex items-center gap-2">
-              <Star className="w-4 h-4 text-yellow-400 fill-current" />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Star style={{ width: '16px', height: '16px', color: '#f59e0b', fill: 'currentColor' }} />
               <span>4.9/5 rating</span>
             </div>
-            <div className="flex items-center gap-2">
-              <Award className="w-4 h-4 text-purple-500" />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Award style={{ width: '16px', height: '16px', color: '#8b5cf6' }} />
               <span>Professional quality</span>
             </div>
           </div>
         </div>
 
         {/* Pricing Cards */}
-        <div className="grid md:grid-cols-3 gap-8 mb-16">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '32px', marginBottom: '64px' }}>
           {plans.map((plan, index) => (
             <div
               key={index}
-              className={`relative bg-white border-2 rounded-2xl p-8 transition-all hover:shadow-xl hover:-translate-y-1 ${
-                plan.popular ? 'border-blue-500 shadow-lg' : 'border-gray-100 hover:border-gray-200'
-              }`}
+              style={{
+                position: 'relative',
+                backgroundColor: 'white',
+                border: plan.popular ? '2px solid #3b82f6' : '2px solid #f3f4f6',
+                borderRadius: '16px',
+                padding: '32px',
+                transition: 'all 0.3s ease',
+                boxShadow: plan.popular ? '0 20px 25px -5px rgba(0, 0, 0, 0.1)' : '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+              }}
             >
               {plan.popular && (
-                <div className="absolute -top-4 left-1/2 transform -translate-x-1/2">
-                  <div className="bg-gradient-to-r from-blue-500 to-purple-600 text-white px-6 py-2 rounded-full text-sm font-bold shadow-lg">
+                <div style={{ position: 'absolute', top: '-16px', left: '50%', transform: 'translateX(-50%)' }}>
+                  <div style={{ 
+                    background: 'linear-gradient(to right, #3b82f6, #8b5cf6)', 
+                    color: 'white', 
+                    padding: '8px 24px', 
+                    borderRadius: '9999px', 
+                    fontSize: '14px', 
+                    fontWeight: '700', 
+                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' 
+                  }}>
                     MOST POPULAR
                   </div>
                 </div>
               )}
 
-              <div className="text-center mb-8">
-                <h3 className="text-2xl font-bold text-gray-900 mb-2">{plan.name}</h3>
-                <div className="mb-4">
-                  <span className="text-4xl font-black text-gray-900">{plan.price}</span>
+              <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#111827', marginBottom: '8px' }}>{plan.name}</h3>
+                <div style={{ marginBottom: '16px' }}>
+                  <span style={{ fontSize: '2.5rem', fontWeight: '900', color: '#111827' }}>{plan.price}</span>
                 </div>
-                <div className="mb-4">
-                  <span className="text-3xl font-bold text-gray-900">{plan.credits}</span>
-                  <span className="text-gray-600 ml-2">Credits</span>
+                <div style={{ marginBottom: '16px' }}>
+                  <span style={{ fontSize: '1.875rem', fontWeight: '700', color: '#111827' }}>{plan.credits}</span>
+                  <span style={{ color: '#6b7280', marginLeft: '8px' }}>Credits</span>
                 </div>
-                <p className="text-gray-500 text-sm">{plan.description}</p>
+                <p style={{ color: '#6b7280', fontSize: '14px' }}>{plan.description}</p>
               </div>
 
-              <ul className="space-y-4 mb-8">
+              <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 32px 0' }}>
                 {plan.features.map((feature, featureIndex) => (
-                  <li key={featureIndex} className="flex items-center gap-3">
-                    <Check className="w-5 h-5 text-green-500 flex-shrink-0" />
-                    <span className="text-gray-700">{feature}</span>
+                  <li key={featureIndex} style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                    <Check style={{ width: '20px', height: '20px', color: '#10b981', flexShrink: 0 }} />
+                    <span style={{ color: '#374151' }}>{feature}</span>
                   </li>
                 ))}
               </ul>
 
-              <Link
-                href="/studio"
-                className={`block w-full text-center py-4 rounded-xl font-bold transition-all ${
-                  plan.popular
-                    ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg hover:shadow-xl hover:-translate-y-0.5'
-                    : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
-                }`}
+              {/* 🔧 FIXED: Updated button to use handleBuyCreditsFixed */}
+              <button
+                onClick={() => {
+                  if (plan.credits === 3) {
+                    handleBuyCreditsFixed(3, 'KyLbF', 'IHKvU')
+                  } else if (plan.credits === 10) {
+                    handleBuyCreditsFixed(10, 'FzopO', 'VBfyi')
+                  } else if (plan.credits === 15) {
+                    handleBuyCreditsFixed(15, 'KUOpi', 'o0XfZ')
+                  }
+                }}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  textAlign: 'center',
+                  padding: '16px',
+                  borderRadius: '12px',
+                  fontWeight: '700',
+                  border: 'none',
+                  cursor: 'pointer',
+                  transition: 'all 0.3s ease',
+                  ...(plan.popular
+                    ? {
+                        background: 'linear-gradient(to right, #3b82f6, #8b5cf6)',
+                        color: 'white',
+                        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
+                      }
+                    : {
+                        backgroundColor: '#f3f4f6',
+                        color: '#111827'
+                      })
+                }}
               >
                 Choose {plan.name}
-              </Link>
+              </button>
             </div>
           ))}
         </div>
 
         {/* All Plans Include */}
-        <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl p-8 mb-16">
-          <h3 className="text-2xl font-bold text-gray-900 text-center mb-8">
+        <div style={{ 
+          background: 'linear-gradient(to bottom right, #f9fafb, #f3f4f6)', 
+          borderRadius: '16px', 
+          padding: '32px', 
+          marginBottom: '64px' 
+        }}>
+          <h3 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#111827', textAlign: 'center', marginBottom: '32px' }}>
             All Plans Include
           </h3>
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '24px' }}>
             {allFeatures.map((feature, index) => (
-              <div key={index} className="text-center">
-                <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center text-white mx-auto mb-4">
+              <div key={index} style={{ textAlign: 'center' }}>
+                <div style={{ 
+                  width: '48px', 
+                  height: '48px', 
+                  background: 'linear-gradient(to bottom right, #3b82f6, #8b5cf6)', 
+                  borderRadius: '12px', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center', 
+                  color: 'white', 
+                  margin: '0 auto 16px' 
+                }}>
                   {feature.icon}
                 </div>
-                <h4 className="font-semibold text-gray-900 mb-2">{feature.title}</h4>
-                <p className="text-sm text-gray-600">{feature.description}</p>
+                <h4 style={{ fontWeight: '600', color: '#111827', marginBottom: '8px' }}>{feature.title}</h4>
+                <p style={{ fontSize: '14px', color: '#6b7280' }}>{feature.description}</p>
               </div>
             ))}
           </div>
         </div>
 
         {/* FAQ Section */}
-        <div className="mb-16">
-          <h3 className="text-2xl font-bold text-gray-900 text-center mb-8">
+        <div style={{ marginBottom: '64px' }}>
+          <h3 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#111827', textAlign: 'center', marginBottom: '32px' }}>
             Frequently Asked Questions
           </h3>
-          <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '32px', maxWidth: '1024px', margin: '0 auto' }}>
             {[
               {
                 question: 'How do credits work?',
@@ -244,31 +483,86 @@ const PricingPage: React.FC = () => {
                 answer: 'No hidden fees. Pay once and use your credits whenever you need headshots.'
               }
             ].map((faq, index) => (
-              <div key={index} className="bg-white border border-gray-100 rounded-xl p-6">
-                <h4 className="font-semibold text-gray-900 mb-3">{faq.question}</h4>
-                <p className="text-gray-600 text-sm leading-relaxed">{faq.answer}</p>
+              <div key={index} style={{ 
+                backgroundColor: 'white', 
+                border: '1px solid #f3f4f6', 
+                borderRadius: '12px', 
+                padding: '24px' 
+              }}>
+                <h4 style={{ fontWeight: '600', color: '#111827', marginBottom: '12px' }}>{faq.question}</h4>
+                <p style={{ color: '#6b7280', fontSize: '14px', lineHeight: '1.6' }}>{faq.answer}</p>
               </div>
             ))}
           </div>
         </div>
 
         {/* CTA Section */}
-        <div className="text-center bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl p-12 text-white">
-          <h3 className="text-3xl font-bold mb-4">
+        <div style={{ 
+          textAlign: 'center', 
+          background: 'linear-gradient(to right, #3b82f6, #8b5cf6)', 
+          borderRadius: '16px', 
+          padding: '48px', 
+          color: 'white' 
+        }}>
+          <h3 style={{ fontSize: '1.875rem', fontWeight: '700', marginBottom: '16px' }}>
             Ready to Create Professional Headshots?
           </h3>
-          <p className="text-xl mb-8 text-blue-100">
+          <p style={{ fontSize: '20px', marginBottom: '32px', color: '#dbeafe' }}>
             Join thousands of professionals who trust Deeplab-ai
           </p>
           <Link
             href="/studio"
-            className="inline-flex items-center gap-3 bg-white text-blue-600 px-8 py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all"
+            style={{ 
+              display: 'inline-flex', 
+              alignItems: 'center', 
+              gap: '12px', 
+              backgroundColor: 'white', 
+              color: '#2563eb', 
+              padding: '16px 32px', 
+              borderRadius: '12px', 
+              fontWeight: '700', 
+              fontSize: '18px', 
+              boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', 
+              textDecoration: 'none',
+              transition: 'all 0.3s ease'
+            }}
           >
-            <Sparkles className="w-6 h-6" />
+            <Sparkles style={{ width: '24px', height: '24px' }} />
             Start Creating Now
           </Link>
         </div>
       </div>
+
+      {/* Footer */}
+      <footer style={{ 
+        backgroundColor: '#111827', 
+        color: 'white', 
+        padding: '40px 0',
+        textAlign: 'center'
+      }}>
+        <div style={{ maxWidth: '1280px', margin: '0 auto', padding: '0 24px' }}>
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'center', 
+            gap: '32px', 
+            marginBottom: '24px',
+            flexWrap: 'wrap'
+          }}>
+            <Link href="/help" style={{ color: '#9ca3af', textDecoration: 'none', fontSize: '14px' }}>
+              Help Center
+            </Link>
+            <Link href="/terms" style={{ color: '#9ca3af', textDecoration: 'none', fontSize: '14px' }}>
+              Terms of Service
+            </Link>
+            <Link href="/privacy" style={{ color: '#9ca3af', textDecoration: 'none', fontSize: '14px' }}>
+              Privacy Policy
+            </Link>
+          </div>
+          <p style={{ color: '#9ca3af', fontSize: '14px' }}>
+            &copy; 2024 Deeplab-ai. All rights reserved.
+          </p>
+        </div>
+      </footer>
     </div>
   )
 }

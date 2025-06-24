@@ -256,7 +256,7 @@ export async function markFreeTrialUsed(): Promise<UnifiedUserData> {
   const userData = await loadUnifiedUserData()
   userData.lastFreeTrialDate = new Date().toISOString()
   userData.totalFreeTrialsUsed += 1
-  userData.credits += FREE_TRIAL_CREDITS
+
   return await syncWithServer(userData)
 }
 

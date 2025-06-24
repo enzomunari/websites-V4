@@ -8,6 +8,11 @@ export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://deeplab-ai.com'),
   title: 'Deeplab-ai - Professional AI Avatar Generator',
   description: 'Create stunning professional AI-generated avatars and portraits for business, LinkedIn, social media, and more. Advanced AI technology for high-quality digital portraits.',
+   icons: {
+    icon: '/favicon.svg',
+    shortcut: '/favicon.svg',
+    apple: '/favicon.svg',
+  },
   keywords: 'professional avatar generator, AI portraits, business headshots, LinkedIn photos, professional photos, AI avatars, digital portraits',
   authors: [{ name: 'Deeplab-ai Team' }],
   creator: 'Deeplab-ai',
@@ -42,11 +47,7 @@ export const metadata: Metadata = {
       follow: true,
     },
   },
-  icons: {
-    icon: '/favicon.ico',
-    shortcut: '/favicon-16x16.png',
-    apple: '/apple-touch-icon.png',
-  },
+  
   manifest: '/site.webmanifest',
 }
 

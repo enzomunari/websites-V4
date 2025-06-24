@@ -125,8 +125,8 @@ async function writeUnifiedUsers(users: Record<string, UserData>): Promise<void>
   }
 }
 
-// Get single user by device ID
-export async function getUser(deviceId: string): Promise<UserData | null> {
+// MISSING EXPORT: Get single user by device ID
+export async function getUserData(deviceId: string): Promise<UserData | null> {
   try {
     const users = await readUnifiedUsers()
     const userData = Object.values(users).find((u: UserData) => u.deviceId === deviceId)
@@ -139,9 +139,14 @@ export async function getUser(deviceId: string): Promise<UserData | null> {
       return null
     }
   } catch (error) {
-    console.error('Error getting user:', error)
+    console.error('Error getting user data:', error)
     return null
   }
+}
+
+// Get single user by device ID (alias for compatibility)
+export async function getUser(deviceId: string): Promise<UserData | null> {
+  return await getUserData(deviceId)
 }
 
 // Update user credits directly in database
@@ -251,6 +256,62 @@ export async function getUserEvents(): Promise<UserEvent[]> {
   return await readJsonFile<UserEvent[]>('user_events.json', [])
 }
 
+// Get site statistics
+export async function getSiteStats(site: string) {
+  try {
+    const users = await getAllUsers()
+    const generations = await getGenerations()
+    const events = await getUserEvents()
+    
+    // Filter by site
+    const siteGenerations = generations.filter(g => g.site === site)
+    const siteEvents = events.filter(e => e.site === site)
+    const siteUsers = Object.values(users).filter(u => u.sitesUsed.includes(site))
+    
+    // Calculate stats
+    const totalUsers = siteUsers.length
+    const activeUsers = siteUsers.filter(u => {
+      const lastVisit = new Date(u.lastVisitDate)
+      const daysSinceVisit = (Date.now() - lastVisit.getTime()) / (1000 * 60 * 60 * 24)
+      return daysSinceVisit <= 7
+    }).length
+    
+    const totalGenerations = siteGenerations.length
+    const successfulGenerations = siteGenerations.filter(g => g.success).length
+    const successRate = totalGenerations > 0 ? ((successfulGenerations / totalGenerations) * 100).toFixed(1) : '0'
+    
+    const today = new Date().toDateString()
+    const generationsToday = siteGenerations.filter(g => 
+      new Date(g.timestamp).toDateString() === today
+    ).length
+    
+    const totalCredits = siteUsers.reduce((sum, u) => sum + u.credits, 0)
+    
+    return {
+      totalUsers,
+      activeUsers,
+      totalGenerations,
+      successfulGenerations,
+      successRate,
+      generationsToday,
+      totalCredits,
+      totalEvents: siteEvents.length
+    }
+  } catch (error) {
+    console.error('Error getting site stats:', error)
+    return {
+      totalUsers: 0,
+      activeUsers: 0,
+      totalGenerations: 0,
+      successfulGenerations: 0,
+      successRate: '0',
+      generationsToday: 0,
+      totalCredits: 0,
+      totalEvents: 0
+    }
+  }
+}
+
 // Block/unblock user
 export async function setUserBlocked(userId: string, blocked: boolean): Promise<boolean> {
   try {
@@ -302,72 +363,13 @@ export async function addUserCredits(userId: string, amount: number): Promise<bo
   }
 }
 
-// Block/unblock user - alias for setUserBlocked
+// Block user (alias for setUserBlocked)
 export async function blockUser(userId: string, blocked: boolean): Promise<boolean> {
   return await setUserBlocked(userId, blocked)
 }
 
-// Get site statistics
-export async function getSiteStats(site: string): Promise<{
-  totalUsers: number
-  totalGenerations: number
-  totalSuccessfulGenerations: number
-  totalFailedGenerations: number
-  totalCreditsUsed: number
-  activeUsers: number
-  lastUpdated: string
-}> {
-  try {
-    const users = await getAllUsers()
-    const generations = await getGenerations()
-    const events = await getUserEvents()
-    
-    // Filter by site
-    const siteUsers = Object.values(users).filter(u => u.sitesUsed.includes(site))
-    const siteGenerations = generations.filter(g => g.site === site)
-    const siteEvents = events.filter(e => e.site === site)
-    
-    const totalUsers = siteUsers.length
-    const totalGenerations = siteGenerations.length
-    const totalSuccessfulGenerations = siteGenerations.filter(g => g.success).length
-    const totalFailedGenerations = siteGenerations.filter(g => !g.success).length
-    const totalCreditsUsed = siteUsers.reduce((sum, u) => sum + u.totalGenerations, 0)
-    
-    // Active users in last 24 hours
-    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000)
-    const activeUsers = siteUsers.filter(u => 
-      new Date(u.lastVisitDate) > yesterday
-    ).length
-    
-    return {
-      totalUsers,
-      totalGenerations,
-      totalSuccessfulGenerations,
-      totalFailedGenerations,
-      totalCreditsUsed,
-      activeUsers,
-      lastUpdated: new Date().toISOString()
-    }
-  } catch (error) {
-    console.error('Error getting site stats:', error)
-    return {
-      totalUsers: 0,
-      totalGenerations: 0,
-      totalSuccessfulGenerations: 0,
-      totalFailedGenerations: 0,
-      totalCreditsUsed: 0,
-      activeUsers: 0,
-      lastUpdated: new Date().toISOString()
-    }
-  }
-}
-
 // Clean old data
-export async function cleanOldData(): Promise<{
-  eventsRemoved: number
-  generationsRemoved: number
-  message: string
-}> {
+export async function cleanOldData() {
   try {
     const cutoffDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) // 30 days ago
     

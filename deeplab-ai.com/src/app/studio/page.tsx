@@ -12,15 +12,15 @@ import {
   Upload,
   Crown,
   ArrowLeft,
-  X
+  X,
+  Check
 } from 'lucide-react'
 import { 
   loadUnifiedUserData,
-  refreshUserData,  // ← ADD THIS LINE
+  refreshUserData,
   canUseFreeTrial,
   markFreeTrialUsed
 } from '../../utils/unifiedUserStorage'
-
 
 // Enhanced localStorage with error handling
 const safeLocalStorage = {
@@ -230,57 +230,57 @@ const DeeplabStudio: React.FC = () => {
   const [showCreditsModal, setShowCreditsModal] = useState(false)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
 
-useEffect(() => {
-  const loadUserData = async () => {
-    console.log('🔄 Loading user data on studio page mount...')
-    const data = await getUserData()
-    setUserData(data)
-    
-    if (data) {
-      console.log('👤 Studio page loaded user:', data.userId, 'Credits:', data.credits)
-    }
+  useEffect(() => {
+    const loadUserData = async () => {
+      console.log('🔄 Loading user data on studio page mount...')
+      const data = await getUserData()
+      setUserData(data)
       
-      // Load persistent generated images
-      const savedImages = loadGeneratedImages()
-      setGeneratedImages(savedImages)
-      if (savedImages.length > 0) {
-        setGeneratedImage(savedImages[0])
+      if (data) {
+        console.log('👤 Studio page loaded user:', data.userId, 'Credits:', data.credits)
       }
-      
-      // Check for background generation completion
-      const backgroundResult = await checkBackgroundGeneration()
-      if (backgroundResult) {
-        const updatedImages = [backgroundResult, ...savedImages]
-        setGeneratedImages(updatedImages)
-        setGeneratedImage(backgroundResult)
-        saveGeneratedImages(updatedImages)
         
-        if (data) {
-          const updatedUserData = await getUserData()
-          setUserData(updatedUserData)
+        // Load persistent generated images
+        const savedImages = loadGeneratedImages()
+        setGeneratedImages(savedImages)
+        if (savedImages.length > 0) {
+          setGeneratedImage(savedImages[0])
+        }
+        
+        // Check for background generation completion
+        const backgroundResult = await checkBackgroundGeneration()
+        if (backgroundResult) {
+          const updatedImages = [backgroundResult, ...savedImages]
+          setGeneratedImages(updatedImages)
+          setGeneratedImage(backgroundResult)
+          saveGeneratedImages(updatedImages)
+          
+          if (data) {
+            const updatedUserData = await getUserData()
+            setUserData(updatedUserData)
+          }
         }
       }
-    }
+      
+  loadUserData()
     
-loadUserData()
-  
-  // CRITICAL: Add interval to refresh user data every 10 seconds
-  const refreshInterval = setInterval(async () => {
-    console.log('🔄 Periodic user data refresh...')
-    const freshData = await getUserData()
-    if (freshData) {
-      console.log('💰 Current credits from server:', freshData.credits)
-      if (userData && freshData.credits !== userData.credits) {
-        console.log('💰 Credits changed:', userData.credits, '->', freshData.credits)
-        setUserData(freshData)
-      } else if (!userData) {
-        setUserData(freshData)
+    // CRITICAL: Add interval to refresh user data every 10 seconds
+    const refreshInterval = setInterval(async () => {
+      console.log('🔄 Periodic user data refresh...')
+      const freshData = await getUserData()
+      if (freshData) {
+        console.log('💰 Current credits from server:', freshData.credits)
+        if (userData && freshData.credits !== userData.credits) {
+          console.log('💰 Credits changed:', userData.credits, '->', freshData.credits)
+          setUserData(freshData)
+        } else if (!userData) {
+          setUserData(freshData)
+        }
       }
-    }
-  }, 10000) // Refresh every 10 seconds
-  
-  return () => clearInterval(refreshInterval)
-}, []) // Remove userData dependency
+    }, 10000) // Refresh every 10 seconds
+    
+    return () => clearInterval(refreshInterval)
+  }, []) // Remove userData dependency
 
   const environments = [
     { id: 'office', name: 'Professional Office', image: '/environments/office.jpg' },
@@ -320,108 +320,108 @@ loadUserData()
     }
   }
 
-const handleGenerate = async () => {
-  if (!selectedFile) {
-    setError('Please select an image and ensure user data is loaded')
-    return
-  }
-
-  // CRITICAL: Always get fresh user data before generation attempt
-  console.log('🔄 Getting fresh user data before generation...')
-  const freshUserData = await getUserData()
-  setUserData(freshUserData)
-  
-  if (!freshUserData) {
-    setError('Unable to load user data')
-    return
-  }
-
-  const { canGenerate: canGen, reason } = await canGenerate()
-  
-  if (!canGen) {
-    if (reason === 'No credits available') {
-      setShowCreditsModal(true)
-    } else {
-      setError(reason || 'Cannot generate at this time')
+  const handleGenerate = async () => {
+    if (!selectedFile) {
+      setError('Please select an image and ensure user data is loaded')
+      return
     }
-    return
-  }
 
-  setIsGenerating(true)
-  setError(null)
-  setProgress(0)
-
-  try {
-    const isFreeTrial = reason === 'free_trial'
+    // CRITICAL: Always get fresh user data before generation attempt
+    console.log('🔄 Getting fresh user data before generation...')
+    const freshUserData = await getUserData()
+    setUserData(freshUserData)
     
-    const formData = new FormData()
-    formData.append('image', selectedFile)
-    formData.append('environment', selectedEnvironment)
-    formData.append('style', selectedStyle)
-    formData.append('userId', freshUserData.userId)
-    formData.append('deviceId', freshUserData.deviceId)
+    if (!freshUserData) {
+      setError('Unable to load user data')
+      return
+    }
 
-    console.log('🚀 Starting generation with:', {
-      environment: selectedEnvironment,
-      style: selectedStyle,
-      userId: freshUserData.userId,
-      isFreeTrial
-    })
+    const { canGenerate: canGen, reason } = await canGenerate()
+    
+    if (!canGen) {
+      if (reason === 'No credits available') {
+        setShowCreditsModal(true)
+      } else {
+        setError(reason || 'Cannot generate at this time')
+      }
+      return
+    }
 
-    // Progress simulation
-    let progressValue = 0
-    const progressInterval = setInterval(() => {
-      progressValue += Math.random() * 15
-      setProgress(Math.min(Math.round(progressValue), 90)) // Round to nearest integer
-    }, 500)
+    setIsGenerating(true)
+    setError(null)
+    setProgress(0)
 
-    const response = await fetch('/api/generate', {
-      method: 'POST',
-      body: formData
-    })
+    try {
+      const isFreeTrial = reason === 'free_trial'
+      
+      const formData = new FormData()
+      formData.append('image', selectedFile)
+      formData.append('environment', selectedEnvironment)
+      formData.append('style', selectedStyle)
+      formData.append('userId', freshUserData.userId)
+      formData.append('deviceId', freshUserData.deviceId)
 
-    clearInterval(progressInterval)
-    setProgress(100)
+      console.log('🚀 Starting generation with:', {
+        environment: selectedEnvironment,
+        style: selectedStyle,
+        userId: freshUserData.userId,
+        isFreeTrial
+      })
 
-    if (response.ok) {
-      const result = await response.json()
-      console.log('✅ Generation successful:', result)
+      // Progress simulation
+      let progressValue = 0
+      const progressInterval = setInterval(() => {
+        progressValue += Math.random() * 15
+        setProgress(Math.min(Math.round(progressValue), 90)) // Round to nearest integer
+      }, 500)
 
-      if (result.success && result.imageUrl) {
-        setGeneratedImage(result.imageUrl)
+      const response = await fetch('/api/generate', {
+        method: 'POST',
+        body: formData
+      })
+
+      clearInterval(progressInterval)
+      setProgress(100)
+
+      if (response.ok) {
+        const result = await response.json()
+        console.log('✅ Generation successful:', result)
+
+        if (result.success && result.imageUrl) {
+          setGeneratedImage(result.imageUrl)
+          
+          const updatedImages = [result.imageUrl, ...generatedImages]
+          setGeneratedImages(updatedImages)
+          saveGeneratedImages(updatedImages)
+
+          // CRITICAL: Force refresh user data after successful generation
+          console.log('🔄 Refreshing user data after successful generation...')
+          const postGenUserData = await getUserData()
+          setUserData(postGenUserData)
+          
+          console.log('💎 Credits after generation:', postGenUserData?.credits)
+        }
+      } else {
+        const errorData = await response.json()
+        setError(errorData.error || 'Generation failed')
+        console.error('❌ Generation failed:', errorData.error)
         
-        const updatedImages = [result.imageUrl, ...generatedImages]
-        setGeneratedImages(updatedImages)
-        saveGeneratedImages(updatedImages)
-
-        // CRITICAL: Force refresh user data after successful generation
-        console.log('🔄 Refreshing user data after successful generation...')
+        // CRITICAL: Refresh user data even after failed generation
         const postGenUserData = await getUserData()
         setUserData(postGenUserData)
-        
-        console.log('💎 Credits after generation:', postGenUserData?.credits)
       }
-    } else {
-      const errorData = await response.json()
-      setError(errorData.error || 'Generation failed')
-      console.error('❌ Generation failed:', errorData.error)
+    } catch (error) {
+      console.error('❌ Generation error:', error)
+      setError('Generation failed. Please try again.')
       
-      // CRITICAL: Refresh user data even after failed generation
+      // CRITICAL: Refresh user data after error
       const postGenUserData = await getUserData()
       setUserData(postGenUserData)
+    } finally {
+      setIsGenerating(false)
+      setProgress(0)
     }
-  } catch (error) {
-    console.error('❌ Generation error:', error)
-    setError('Generation failed. Please try again.')
-    
-    // CRITICAL: Refresh user data after error
-    const postGenUserData = await getUserData()
-    setUserData(postGenUserData)
-  } finally {
-    setIsGenerating(false)
-    setProgress(0)
   }
-}
 
   const downloadImage = async (imageUrl: string) => {
     try {
@@ -867,7 +867,7 @@ const handleGenerate = async () => {
         </div>
       )}
 
-      {/* Credits Modal */}
+      {/* 🔧 FIXED: Enhanced Credits Modal with popup-first approach */}
       {showCreditsModal && (
         <div 
           style={{
@@ -890,70 +890,434 @@ const handleGenerate = async () => {
               backgroundColor: 'white',
               borderRadius: '20px',
               padding: '32px',
-              maxWidth: '400px',
-              width: '100%'
+              maxWidth: '800px',
+              width: '100%',
+              maxHeight: '90vh',
+              overflowY: 'auto'
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '16px', textAlign: 'center' }}>
-              Buy Credits
-            </h3>
-            <p style={{ color: '#6b7280', textAlign: 'center', marginBottom: '24px' }}>
-              You need credits to generate professional headshots. Each generation uses 1 credit.
-            </p>
-            
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
-              <div style={{ 
-                padding: '16px', 
-                border: '2px solid #e5e7eb', 
-                borderRadius: '12px',
-                textAlign: 'center'
-              }}>
-                <div style={{ fontSize: '18px', fontWeight: 'bold' }}>5 Credits - $9.99</div>
-                <div style={{ color: '#6b7280' }}>Perfect for trying out</div>
-              </div>
-              <div style={{ 
-                padding: '16px', 
-                border: '2px solid #3b82f6', 
-                borderRadius: '12px',
-                textAlign: 'center',
-                backgroundColor: '#dbeafe'
-              }}>
-                <div style={{ fontSize: '18px', fontWeight: 'bold' }}>15 Credits - $24.99</div>
-                <div style={{ color: '#6b7280' }}>Most popular choice</div>
-              </div>
-            </div>
-            
-            <div style={{ display: 'flex', gap: '12px' }}>
+            <div style={{ position: 'relative', marginBottom: '32px' }}>
               <button
                 onClick={() => setShowCreditsModal(false)}
                 style={{
-                  flex: 1,
-                  padding: '12px',
+                  position: 'absolute',
+                  top: '-8px',
+                  right: '-8px',
                   backgroundColor: '#f3f4f6',
                   border: 'none',
-                  borderRadius: '12px',
+                  borderRadius: '50%',
+                  width: '32px',
+                  height: '32px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                   cursor: 'pointer'
                 }}
               >
-                Cancel
+                <X style={{ width: '16px', height: '16px' }} />
               </button>
+              
+              <h3 style={{ fontSize: '28px', fontWeight: 'bold', textAlign: 'center', color: '#111827', marginBottom: '8px' }}>
+                Buy Credits
+              </h3>
+              <p style={{ color: '#6b7280', textAlign: 'center', fontSize: '16px' }}>
+                You need credits to generate professional headshots. Each generation uses 1 credit.
+              </p>
+            </div>
+            
+            {/* 3 Pricing Plans */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '32px' }}>
+              
+              {/* Starter Pack */}
+              <div style={{
+                position: 'relative',
+                backgroundColor: 'white',
+                border: '2px solid #f3f4f6',
+                borderRadius: '16px',
+                padding: '24px',
+                transition: 'all 0.3s ease',
+                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+              }}>
+                <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                  <h4 style={{ fontSize: '18px', fontWeight: '700', color: '#111827', marginBottom: '8px' }}>
+                    Starter Pack
+                  </h4>
+                  <div style={{ marginBottom: '8px' }}>
+                    <span style={{ fontSize: '24px', fontWeight: '900', color: '#111827' }}>$3.99</span>
+                  </div>
+                  <div style={{ marginBottom: '8px' }}>
+                    <span style={{ fontSize: '20px', fontWeight: '700', color: '#111827' }}>3</span>
+                    <span style={{ color: '#6b7280', marginLeft: '4px' }}>Credits</span>
+                  </div>
+                  <p style={{ color: '#6b7280', fontSize: '12px' }}>Perfect to try it out</p>
+                </div>
+
+                <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px 0', fontSize: '13px' }}>
+                  <li style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                    <Check style={{ width: '14px', height: '14px', color: '#10b981', flexShrink: 0 }} />
+                    <span style={{ color: '#374151' }}>3 AI headshots</span>
+                  </li>
+                  <li style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                    <Check style={{ width: '14px', height: '14px', color: '#10b981', flexShrink: 0 }} />
+                    <span style={{ color: '#374151' }}>All environments & styles</span>
+                  </li>
+                  <li style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                    <Check style={{ width: '14px', height: '14px', color: '#10b981', flexShrink: 0 }} />
+                    <span style={{ color: '#374151' }}>High-resolution downloads</span>
+                  </li>
+                  <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Check style={{ width: '14px', height: '14px', color: '#10b981', flexShrink: 0 }} />
+                    <span style={{ color: '#374151' }}>Instant generation</span>
+                  </li>
+                </ul>
+
+                <button
+                  onClick={async () => {
+                    if (!userData) return
+                    
+                    try {
+                      console.log('🎫 Generating purchase token for 3 credits...')
+                      
+                      // ⚡ FIXED: Open popup BEFORE async operations
+                      const popup = window.open('', '_blank')
+                      if (!popup) {
+                        alert('Please allow popups for this site to complete your purchase')
+                        return
+                      }
+                      
+                      popup.document.write(`
+                        <html>
+                          <head><title>Processing Payment...</title></head>
+                          <body style="font-family: Arial; text-align: center; padding: 50px;">
+                            <h2>🔄 Setting up your payment...</h2>
+                            <p>Please wait while we redirect you to the secure payment page.</p>
+                          </body>
+                        </html>
+                      `)
+                      
+                      const response = await fetch('/api/purchase-tokens', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          userId: userData.userId,
+                          deviceId: userData.deviceId,
+                          credits: 3,
+                          productId: 'KyLbF',
+                          site: 'deeplab'
+                        })
+                      })
+                      
+                      if (!response.ok) {
+                        popup.close()
+                        throw new Error('Failed to create purchase token')
+                      }
+                      
+                      const { token } = await response.json()
+                      console.log(`✅ Token generated: ${token}`)
+                      
+                      const returnUrl = `https://deeplab-ai.com/studio/success?token=${token}`
+                      const payhipUrl = `https://payhip.com/b/IHKvU?return_url=${encodeURIComponent(returnUrl)}`
+                      
+                      popup.location.href = payhipUrl
+                      console.log('🔗 Payhip URL:', payhipUrl)
+                      setShowCreditsModal(false)
+                      
+                    } catch (error) {
+                      console.error('❌ Failed to initiate purchase:', error)
+                      alert('Failed to initiate purchase. Please try again.')
+                    }
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    backgroundColor: '#f3f4f6',
+                    color: '#111827',
+                    border: 'none',
+                    borderRadius: '12px',
+                    fontWeight: '700',
+                    fontSize: '14px',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s ease'
+                  }}
+                >
+                  Choose Starter Pack
+                </button>
+              </div>
+
+              {/* Popular Pack */}
+              <div style={{
+                position: 'relative',
+                backgroundColor: 'white',
+                border: '2px solid #3b82f6',
+                borderRadius: '16px',
+                padding: '24px',
+                transition: 'all 0.3s ease',
+                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
+              }}>
+                {/* Most Popular Badge */}
+                <div style={{ position: 'absolute', top: '-12px', left: '50%', transform: 'translateX(-50%)' }}>
+                  <div style={{ 
+                    background: 'linear-gradient(to right, #3b82f6, #8b5cf6)', 
+                    color: 'white', 
+                    padding: '4px 16px', 
+                    borderRadius: '9999px', 
+                    fontSize: '10px', 
+                    fontWeight: '700', 
+                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' 
+                  }}>
+                    MOST POPULAR
+                  </div>
+                </div>
+
+                <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                  <h4 style={{ fontSize: '18px', fontWeight: '700', color: '#111827', marginBottom: '8px' }}>
+                    Popular Pack
+                  </h4>
+                  <div style={{ marginBottom: '8px' }}>
+                    <span style={{ fontSize: '24px', fontWeight: '900', color: '#111827' }}>$8.99</span>
+                  </div>
+                  <div style={{ marginBottom: '8px' }}>
+                    <span style={{ fontSize: '20px', fontWeight: '700', color: '#111827' }}>10</span>
+                    <span style={{ color: '#6b7280', marginLeft: '4px' }}>Credits</span>
+                  </div>
+                  <p style={{ color: '#6b7280', fontSize: '12px' }}>Great value for money</p>
+                </div>
+
+                <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px 0', fontSize: '13px' }}>
+                  <li style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                    <Check style={{ width: '14px', height: '14px', color: '#10b981', flexShrink: 0 }} />
+                    <span style={{ color: '#374151' }}>10 AI headshots</span>
+                  </li>
+                  <li style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                    <Check style={{ width: '14px', height: '14px', color: '#10b981', flexShrink: 0 }} />
+                    <span style={{ color: '#374151' }}>All environments & styles</span>
+                  </li>
+                  <li style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                    <Check style={{ width: '14px', height: '14px', color: '#10b981', flexShrink: 0 }} />
+                    <span style={{ color: '#374151' }}>High-resolution downloads</span>
+                  </li>
+                  <li style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                    <Check style={{ width: '14px', height: '14px', color: '#10b981', flexShrink: 0 }} />
+                    <span style={{ color: '#374151' }}>Priority processing</span>
+                  </li>
+                  <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Check style={{ width: '14px', height: '14px', color: '#10b981', flexShrink: 0 }} />
+                    <span style={{ color: '#374151' }}>Multiple variations</span>
+                  </li>
+                </ul>
+
+                <button
+                  onClick={async () => {
+                    if (!userData) return
+                    
+                    try {
+                      console.log('🎫 Generating purchase token for 10 credits...')
+                      
+                      // ⚡ FIXED: Open popup BEFORE async operations
+                      const popup = window.open('', '_blank')
+                      if (!popup) {
+                        alert('Please allow popups for this site to complete your purchase')
+                        return
+                      }
+                      
+                      popup.document.write(`
+                        <html>
+                          <head><title>Processing Payment...</title></head>
+                          <body style="font-family: Arial; text-align: center; padding: 50px;">
+                            <h2>🔄 Setting up your payment...</h2>
+                            <p>Please wait while we redirect you to the secure payment page.</p>
+                          </body>
+                        </html>
+                      `)
+                      
+                      const response = await fetch('/api/purchase-tokens', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          userId: userData.userId,
+                          deviceId: userData.deviceId,
+                          credits: 10,
+                          productId: 'FzopO',
+                          site: 'deeplab'
+                        })
+                      })
+                      
+                      if (!response.ok) {
+                        popup.close()
+                        throw new Error('Failed to create purchase token')
+                      }
+                      
+                      const { token } = await response.json()
+                      const returnUrl = `https://deeplab-ai.com/studio/success?token=${token}`
+                      const payhipUrl = `https://payhip.com/b/VBfyi?return_url=${encodeURIComponent(returnUrl)}`
+                      
+                      popup.location.href = payhipUrl
+                      setShowCreditsModal(false)
+                      
+                    } catch (error) {
+                      console.error('❌ Failed to initiate purchase:', error)
+                      alert('Failed to initiate purchase. Please try again.')
+                    }
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    background: 'linear-gradient(to right, #3b82f6, #8b5cf6)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '12px',
+                    fontWeight: '700',
+                    fontSize: '14px',
+                    cursor: 'pointer',
+                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                    transition: 'all 0.3s ease'
+                  }}
+                >
+                  Choose Popular Pack
+                </button>
+              </div>
+
+              {/* Pro Pack */}
+              <div style={{
+                position: 'relative',
+                backgroundColor: 'white',
+                border: '2px solid #f3f4f6',
+                borderRadius: '16px',
+                padding: '24px',
+                transition: 'all 0.3s ease',
+                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+              }}>
+                <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                  <h4 style={{ fontSize: '18px', fontWeight: '700', color: '#111827', marginBottom: '8px' }}>
+                    Pro Pack
+                  </h4>
+                  <div style={{ marginBottom: '8px' }}>
+                    <span style={{ fontSize: '24px', fontWeight: '900', color: '#111827' }}>$10.99</span>
+                  </div>
+                  <div style={{ marginBottom: '8px' }}>
+                    <span style={{ fontSize: '20px', fontWeight: '700', color: '#111827' }}>15</span>
+                    <span style={{ color: '#6b7280', marginLeft: '4px' }}>Credits</span>
+                  </div>
+                  <p style={{ color: '#6b7280', fontSize: '12px' }}>Best value pack</p>
+                </div>
+
+                <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px 0', fontSize: '13px' }}>
+                  <li style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                    <Check style={{ width: '14px', height: '14px', color: '#10b981', flexShrink: 0 }} />
+                    <span style={{ color: '#374151' }}>15 AI headshots</span>
+                  </li>
+                  <li style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                    <Check style={{ width: '14px', height: '14px', color: '#10b981', flexShrink: 0 }} />
+                    <span style={{ color: '#374151' }}>All environments & styles</span>
+                  </li>
+                  <li style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                    <Check style={{ width: '14px', height: '14px', color: '#10b981', flexShrink: 0 }} />
+                    <span style={{ color: '#374151' }}>High-resolution downloads</span>
+                  </li>
+                  <li style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                    <Check style={{ width: '14px', height: '14px', color: '#10b981', flexShrink: 0 }} />
+                    <span style={{ color: '#374151' }}>Priority processing</span>
+                  </li>
+                  <li style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                    <Check style={{ width: '14px', height: '14px', color: '#10b981', flexShrink: 0 }} />
+                    <span style={{ color: '#374151' }}>Multiple variations</span>
+                  </li>
+                  <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Check style={{ width: '14px', height: '14px', color: '#10b981', flexShrink: 0 }} />
+                    <span style={{ color: '#374151' }}>Premium support</span>
+                  </li>
+                </ul>
+
+                <button
+                  onClick={async () => {
+                    if (!userData) return
+                    
+                    try {
+                      console.log('🎫 Generating purchase token for 15 credits...')
+                      
+                      // ⚡ FIXED: Open popup BEFORE async operations
+                      const popup = window.open('', '_blank')
+                      if (!popup) {
+                        alert('Please allow popups for this site to complete your purchase')
+                        return
+                      }
+                      
+                      popup.document.write(`
+                        <html>
+                          <head><title>Processing Payment...</title></head>
+                          <body style="font-family: Arial; text-align: center; padding: 50px;">
+                            <h2>🔄 Setting up your payment...</h2>
+                            <p>Please wait while we redirect you to the secure payment page.</p>
+                          </body>
+                        </html>
+                      `)
+                      
+                      const response = await fetch('/api/purchase-tokens', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          userId: userData.userId,
+                          deviceId: userData.deviceId,
+                          credits: 15,
+                          productId: 'KUOpi',
+                          site: 'deeplab'
+                        })
+                      })
+                      
+                      if (!response.ok) {
+                        popup.close()
+                        throw new Error('Failed to create purchase token')
+                      }
+                      
+                      const { token } = await response.json()
+                      const returnUrl = `https://deeplab-ai.com/studio/success?token=${token}`
+                      const payhipUrl = `https://payhip.com/b/o0XfZ?return_url=${encodeURIComponent(returnUrl)}`
+                      
+                      popup.location.href = payhipUrl
+                      setShowCreditsModal(false)
+                      
+                    } catch (error) {
+                      console.error('❌ Failed to initiate purchase:', error)
+                      alert('Failed to initiate purchase. Please try again.')
+                    }
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    backgroundColor: '#f3f4f6',
+                    color: '#111827',
+                    border: 'none',
+                    borderRadius: '12px',
+                    fontWeight: '700',
+                    fontSize: '14px',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s ease'
+                  }}
+                >
+                  Choose Pro Pack
+                </button>
+              </div>
+            </div>
+            
+            {/* Bottom Action */}
+            <div style={{ textAlign: 'center', borderTop: '1px solid #f3f4f6', paddingTop: '20px' }}>
+              <p style={{ color: '#6b7280', fontSize: '14px', marginBottom: '16px' }}>
+                Secure payment • Instant credit delivery • No recurring charges
+              </p>
               <button
-                onClick={() => {
-                  window.open('/pricing', '_blank')
-                  setShowCreditsModal(false)
-                }}
+                onClick={() => setShowCreditsModal(false)}
                 style={{
-                  flex: 1,
-                  padding: '12px',
-                  backgroundColor: '#3b82f6',
-                  color: 'white',
+                  padding: '8px 24px',
+                  backgroundColor: '#f3f4f6',
+                  color: '#6b7280',
                   border: 'none',
-                  borderRadius: '12px',
-                  cursor: 'pointer'
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontSize: '14px'
                 }}
               >
-                Buy Now
+                Maybe Later
               </button>
             </div>
           </div>
