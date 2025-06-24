@@ -1,4 +1,4 @@
-// src/app/api/generate/route.ts - Complete generation API with queue tracking - FIXED
+// src/app/api/generate/route.ts - Simple face reference bypass solution
 import { NextRequest, NextResponse } from 'next/server'
 import { writeFile, unlink, mkdir, readFile } from 'fs/promises'
 import { existsSync } from 'fs'
@@ -16,6 +16,7 @@ interface AdvancedOptions {
   skinTone: number
   wetness: number
   censored?: boolean
+  useFaceReference?: boolean // NEW: Face reference option
 }
 
 interface PoseConfig {
@@ -69,6 +70,7 @@ async function trackGenerationInQueue(data: {
   deviceId: string;
   pose: string;
   gender: string;
+  useFaceReference?: boolean;
 }): Promise<void> {
   try {
     const baseUrl = process.env.NEXTAUTH_URL || process.env.VERCEL_URL || 'http://localhost:3000';
@@ -140,8 +142,8 @@ function generatePrompts(options: AdvancedOptions) {
     'standing-front': {
       lora: 'cameltoe.safetensors',
       strength: 0.1,
-      prompt: 'standing pose, front view, soft silhouette, boobs',
-      negativePrompt: '((((wearing clothes)))), (((((clothes))))), underwear, skinny, blurry, low quality, (2_girls), wide shoulders, broad shoulders, masculine, square shoulders',
+      prompt: 'standing pose, front view, soft silhouette, boobs, perfect face, beautiful face, beautiful eyes',
+      negativePrompt: '((((wearing clothes)))), (((((clothes))))), underwear, skinny, blurry, low quality, (2_girls), wide shoulders, broad shoulders, masculine, square shoulders, cropped head',
       ipadapterWeight: 0.5,
       cfg: 2.5,
       steps: 10
@@ -255,7 +257,7 @@ function generatePrompts(options: AdvancedOptions) {
       steps: 10
     },
     // Male poses
-	'shower': {
+	'shower-male': {
       lora: 'Showeringv1.safetensors',
       strength: 1.0,
       prompt: 'a handsome man, strong male in a shower, shower scene, ((fully naked)), wet body, water droplets, bathroom tiles, steam, wet hair, soap suds, sensual pose, looking at viewer, standing in shower, water streaming down body, modern bathroom, huge cock, fat penis, large penis, xxl penis',
@@ -264,7 +266,7 @@ function generatePrompts(options: AdvancedOptions) {
       cfg: 3.5,
       steps: 10
     },
-	'standing-front': {
+	'standing-front-male': {
       lora: 'Penis_Mania_-_Huge_Cock_-_Big_Penis_-_Thick_Polla.safetensors',
       strength: 0.3,
       prompt: 'a handsome man, strong male, standing pose, front view, huge cock, fat penis, large penis, xxl penis',
@@ -273,7 +275,7 @@ function generatePrompts(options: AdvancedOptions) {
       cfg: 2.5,
       steps: 10
     },
-    'from behind': {
+    'from behind-male': {
       lora: 'Penis_Mania_-_Huge_Cock_-_Big_Penis_-_Thick_Polla.safetensors',
       strength: 0.1,
       prompt: 'from behind, back view, rear view, standing, male body, muscular, huge cock, fat penis, large penis, xxl penis',
@@ -282,7 +284,7 @@ function generatePrompts(options: AdvancedOptions) {
       cfg: 3.0,
       steps: 10
     },
-    'spread legs': {
+    'spread legs-male': {
       lora: 'Penis_Mania_-_Huge_Cock_-_Big_Penis_-_Thick_Polla.safetensors',
       strength: 0.2,
       prompt: 'spread legs, sitting, legs apart, male body, muscular, huge cock, fat penis, large penis, xxl penis',
@@ -396,7 +398,7 @@ async function uploadImageToComfyUI(imagePath: string, filename: string): Promis
 
 async function submitToComfyUI(
   workflow: Workflow, 
-  imagePath: string, 
+  imagePath: string | null, // NEW: Can be null when not using face reference
   prompts: { positive: string; negative: string }, 
   poseConfig: PoseConfig | undefined,
   options: AdvancedOptions,
@@ -415,31 +417,83 @@ async function submitToComfyUI(
       workflowCopy["12"].inputs.text = prompts.negative
     }
 
-    // CRITICAL FIX: Upload the actual user image and use it
-    const imageFilename = path.basename(imagePath)
-    console.log(`🖼️ Processing uploaded image: ${imageFilename}`)
-    
-    const uploadSuccess = await uploadImageToComfyUI(imagePath, imageFilename)
-    if (!uploadSuccess) {
-      throw new Error('Failed to upload image to ComfyUI')
-    }
-
-    // CRITICAL FIX: Update ALL image load nodes with the NEW uploaded filename
-    const imageLoadNodes = ["499", "421", "422", "423", "424", "425", "426"]
-    
-    for (const nodeId of imageLoadNodes) {
-      if (workflowCopy[nodeId]) {
-        workflowCopy[nodeId] = {
-          "inputs": {
-            "image": imageFilename  // Use the ACTUAL uploaded filename
-          },
-          "class_type": "LoadImage",
-          "_meta": {
-            "title": `Load Uploaded Image ${nodeId}`
-          }
-        }
-        console.log(`✅ Updated image node ${nodeId} with NEW image: ${imageFilename}`)
+    // NEW: SIMPLE SOLUTION - Handle face reference logic
+    if (options.useFaceReference && imagePath) {
+      console.log(`🎭 Face reference ENABLED - using uploaded image`)
+      
+      // Upload the actual user image and use it
+      const imageFilename = path.basename(imagePath)
+      console.log(`🖼️ Processing uploaded image: ${imageFilename}`)
+      
+      const uploadSuccess = await uploadImageToComfyUI(imagePath, imageFilename)
+      if (!uploadSuccess) {
+        throw new Error('Failed to upload image to ComfyUI')
       }
+
+      // Update ALL image load nodes with the NEW uploaded filename
+      const imageLoadNodes = ["499", "421", "422", "423", "424", "425", "426"]
+      
+      for (const nodeId of imageLoadNodes) {
+        if (workflowCopy[nodeId]) {
+          workflowCopy[nodeId] = {
+            "inputs": {
+              "image": imageFilename  // Use the ACTUAL uploaded filename
+            },
+            "class_type": "LoadImage",
+            "_meta": {
+              "title": `Load Uploaded Image ${nodeId}`
+            }
+          }
+          console.log(`✅ Updated image node ${nodeId} with uploaded image: ${imageFilename}`)
+        }
+      }
+
+      // Apply IPAdapter weight when using face reference
+      if (poseConfig && workflowCopy["3"] && workflowCopy["3"].inputs) {
+        workflowCopy["3"].inputs.weight = poseConfig.ipadapterWeight
+        console.log(`✅ IPAdapter enabled with weight: ${poseConfig.ipadapterWeight}`)
+      }
+
+      console.log(`✅ Face reference processing ENABLED`)
+      
+    } else {
+      console.log(`🚫 Face reference DISABLED - bypassing IPAdapter and ReActor`)
+      
+      // SIMPLE BYPASS: Set IPAdapter weight to 0 to disable it
+      if (workflowCopy["3"] && workflowCopy["3"].inputs) {
+        workflowCopy["3"].inputs.weight = 0
+        console.log(`✅ IPAdapter (node 3) disabled - weight set to 0`)
+      }
+      
+      // SIMPLE BYPASS: Set ReActor to bypass mode or disable it
+      if (workflowCopy["89"]) {
+        // Method 1: Try to set bypass mode if the node supports it
+        if (workflowCopy["89"].inputs && 'enabled' in workflowCopy["89"].inputs) {
+          workflowCopy["89"].inputs.enabled = false
+          console.log(`✅ ReActor (node 89) disabled via enabled=false`)
+        }
+        // Method 2: If ReActor has a bypass input
+        else if (workflowCopy["89"].inputs && 'bypass' in workflowCopy["89"].inputs) {
+          workflowCopy["89"].inputs.bypass = true
+          console.log(`✅ ReActor (node 89) bypassed via bypass=true`)
+        }
+        // Method 3: Set weight/strength to 0 if available
+        else if (workflowCopy["89"].inputs && 'weight' in workflowCopy["89"].inputs) {
+          workflowCopy["89"].inputs.weight = 0
+          console.log(`✅ ReActor (node 89) disabled via weight=0`)
+        }
+        else if (workflowCopy["89"].inputs && 'strength' in workflowCopy["89"].inputs) {
+          workflowCopy["89"].inputs.strength = 0
+          console.log(`✅ ReActor (node 89) disabled via strength=0`)
+        }
+        else {
+          console.log(`⚠️ ReActor (node 89) found but no known disable method - may still process`)
+        }
+      } else {
+        console.log(`📝 ReActor (node 89) not found in workflow`)
+      }
+
+      console.log(`✅ Face reference processing completely BYPASSED`)
     }
 
     // Apply LoRA configurations
@@ -483,11 +537,6 @@ async function submitToComfyUI(
       })
     }
 
-    // Apply IPAdapter weight
-    if (poseConfig && workflowCopy["3"] && workflowCopy["3"].inputs) {
-      workflowCopy["3"].inputs.weight = poseConfig.ipadapterWeight
-    }
-
     // Apply sampler settings
     let samplerInfo = {}
     const seed = Math.floor(Math.random() * 1000000000000000)
@@ -520,13 +569,18 @@ async function submitToComfyUI(
     const clientId = `nudeet_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
 
     console.log('🎯 =================== GENERATION PARAMETERS ===================')
-    console.log('📸 Using uploaded image:', imageFilename)
+    console.log('🎭 Face Reference Mode:', options.useFaceReference ? 'ENABLED' : 'DISABLED')
+    if (options.useFaceReference && imagePath) {
+      console.log('📸 Using uploaded image:', path.basename(imagePath))
+    } else {
+      console.log('📸 Pure AI generation - no face reference')
+    }
     console.log('📋 Pose Configuration:', poseConfig ? {
       lora: poseConfig.lora,
       strength: poseConfig.strength,
       cfg: poseConfig.cfg,
       steps: poseConfig.steps,
-      ipadapterWeight: poseConfig.ipadapterWeight
+      ipadapterWeight: options.useFaceReference ? poseConfig.ipadapterWeight : 'DISABLED (0)'
     } : 'No pose config')
     console.log('🎨 LoRAs Applied:', loraInfo)
     console.log('⚙️ Sampler Settings:', samplerInfo)
@@ -563,7 +617,8 @@ async function submitToComfyUI(
       userId,
       deviceId,
       pose: options.pose,
-      gender: options.gender
+      gender: options.gender,
+      useFaceReference: options.useFaceReference
     });
 
     return await pollForCompletion(result.prompt_id, saveNodeId)
@@ -645,16 +700,21 @@ export async function POST(request: NextRequest) {
     
     // Parse form data
     const formData = await request.formData()
-    const image = formData.get('image') as File
+    const image = formData.get('image') as File | null // NEW: Can be null
     const optionsStr = formData.get('options') as string
     const userId = formData.get('userId') as string
     const deviceId = formData.get('deviceId') as string
 
-    if (!image || !optionsStr || !userId || !deviceId) {
+    if (!optionsStr || !userId || !deviceId) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
     const options: AdvancedOptions = JSON.parse(optionsStr)
+
+    // NEW: Check face reference requirements
+    if (options.useFaceReference && !image) {
+      return NextResponse.json({ error: 'Face reference image required when face reference is enabled' }, { status: 400 })
+    }
 
     // FIX: Load user data by device ID directly
     let userData: any
@@ -697,28 +757,34 @@ export async function POST(request: NextRequest) {
       }, { status: 402 })
     }
 
-    // Validate image
-    if (!ALLOWED_TYPES.includes(image.type)) {
-      return NextResponse.json({ error: 'Invalid image type. Please use JPEG, PNG, or WebP.' }, { status: 400 })
-    }
+    // NEW: Validate image only if using face reference
+    if (options.useFaceReference && image) {
+      if (!ALLOWED_TYPES.includes(image.type)) {
+        return NextResponse.json({ error: 'Invalid image type. Please use JPEG, PNG, or WebP.' }, { status: 400 })
+      }
 
-    if (image.size > MAX_FILE_SIZE) {
-      return NextResponse.json({ error: 'Image too large. Maximum size is 10MB.' }, { status: 400 })
+      if (image.size > MAX_FILE_SIZE) {
+        return NextResponse.json({ error: 'Image too large. Maximum size is 10MB.' }, { status: 400 })
+      }
     }
 
     // Create upload directory if it doesn't exist
     await ensureDirectories()
 
-    // Save uploaded image with unique filename
-    const timestamp = Date.now()
-    const extension = image.name.split('.').pop()
-    const filename = `upload_${timestamp}.${extension}`
-    uploadedImagePath = path.join(UPLOAD_DIR, filename)
+    // NEW: Save uploaded image only if using face reference
+    if (options.useFaceReference && image) {
+      const timestamp = Date.now()
+      const extension = image.name.split('.').pop()
+      const filename = `upload_${timestamp}.${extension}`
+      uploadedImagePath = path.join(UPLOAD_DIR, filename)
 
-    const buffer = Buffer.from(await image.arrayBuffer())
-    await writeFile(uploadedImagePath, buffer)
+      const buffer = Buffer.from(await image.arrayBuffer())
+      await writeFile(uploadedImagePath, buffer)
 
-    console.log(`📁 Image saved: ${filename}`)
+      console.log(`📁 Image saved: ${filename}`)
+    } else {
+      console.log(`🚫 No face reference - generating without uploaded image`)
+    }
 
     try {
       // Load workflow based on censorship setting
@@ -739,7 +805,7 @@ export async function POST(request: NextRequest) {
       // Submit to ComfyUI
       const imageUrl = await submitToComfyUI(
         workflow, 
-        uploadedImagePath, 
+        uploadedImagePath, // Can be null when not using face reference
         promptResult, 
         promptResult.poseConfig,
         options,
@@ -759,7 +825,7 @@ export async function POST(request: NextRequest) {
                 ...userData,
                 lastFreeTrialDate: new Date().toISOString(),
                 totalFreeTrialsUsed: userData.totalFreeTrialsUsed + 1,
-                credits: userData.credits + 3
+                credits: userData.credits
               }
             })
           })
@@ -814,6 +880,7 @@ export async function POST(request: NextRequest) {
       console.log('🎉 Result Image URL:', imageUrl)
       console.log('⏱️ Total Generation Time:', `${((Date.now() - startTime) / 1000).toFixed(2)}s`)
       console.log('👤 User Info:', { userId, deviceId })
+      console.log('🎭 Face Reference:', options.useFaceReference ? 'ENABLED' : 'DISABLED')
       console.log('✅ ==========================================================')
       
       return NextResponse.json({
@@ -825,6 +892,7 @@ export async function POST(request: NextRequest) {
           (new Date().getTime() - new Date(updatedUserData.lastFreeTrialDate).getTime()) / (1000 * 60 * 60) >= 24 ? 1 : 0,
         usedFreeTrial,
         isCensored: options.censored || false,
+        usedFaceReference: options.useFaceReference || false,
         userId,
         deviceId,
         generationTime: ((Date.now() - startTime) / 1000).toFixed(2)

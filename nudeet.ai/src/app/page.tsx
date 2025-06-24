@@ -1,4 +1,4 @@
-// app/page.tsx - Complete version with admin dashboard integration - FIXED FOR NUDEET
+// app/page.tsx - Complete version with face reference option - UPDATED FOR NUDEET
 "use client"
 
 import { useState, useEffect, useCallback } from 'react'
@@ -40,7 +40,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState(0)
-  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(true) // CHANGED: Now true by default
   const [initialConsentModalOpen, setInitialConsentModalOpen] = useState(true)
   const [noCreditsModalOpen, setNoCreditsModalOpen] = useState(false)
   const [canUseFreeTrial, setCanUseFreeTrial] = useState(true)
@@ -49,6 +49,7 @@ export default function Home() {
   const [hasUploadedFirstImage, setHasUploadedFirstImage] = useState(false)
   const [uploadKey, setUploadKey] = useState(0)
   const [creditsBlockedModalOpen, setCreditsBlockedModalOpen] = useState(false)
+  const [useFaceReference, setUseFaceReference] = useState(false) // NEW: Face reference option
   const [consentChecks, setConsentChecks] = useState<ConsentChecks>({
     terms: false,
     age: false,
@@ -347,10 +348,11 @@ export default function Home() {
     return interval
   }, [])
 
-  // FIXED: handleGenerate with user data included
+  // FIXED: handleGenerate with face reference logic
   const handleGenerate = useCallback(async () => {
-    if (!image) {
-      setError('Please upload an image first')
+    // NEW: Check if face reference is required but image is missing
+    if (useFaceReference && !image) {
+      setError('Please upload a face reference image first')
       return
     }
     if (credits <= 0) {
@@ -374,8 +376,19 @@ export default function Home() {
       const userData = await loadUserData()
       
       const formData = new FormData()
-      formData.append('image', image)
-      formData.append('options', JSON.stringify(advancedOptions))
+      
+      // NEW: Only add image if face reference is enabled
+      if (useFaceReference && image) {
+        formData.append('image', image)
+      }
+      
+      // NEW: Add useFaceReference flag to options
+      const optionsWithFaceRef = {
+        ...advancedOptions,
+        useFaceReference
+      }
+      
+      formData.append('options', JSON.stringify(optionsWithFaceRef))
       formData.append('userId', userData.userId)  // ADDED
       formData.append('deviceId', userData.deviceId)  // ADDED
       
@@ -405,6 +418,7 @@ export default function Home() {
           deviceId: userData.deviceId,
           pose: advancedOptions.pose,
           gender: advancedOptions.gender,
+          useFaceReference: useFaceReference,
           success: true,
           timestamp: new Date().toISOString()
         });
@@ -432,6 +446,7 @@ export default function Home() {
           deviceId: userData.deviceId,
           pose: advancedOptions.pose,
           gender: advancedOptions.gender,
+          useFaceReference: useFaceReference,
           success: false,
           error: errorMessage,
           timestamp: new Date().toISOString()
@@ -444,12 +459,13 @@ export default function Home() {
       clearInterval(progressInterval)
       setIsLoading(false)
     }
-  }, [image, credits, advancedOptions, generated, simulateProgress, refreshCredits])
+  }, [image, credits, advancedOptions, generated, simulateProgress, refreshCredits, useFaceReference])
 
-  // FIXED: handleFreeTrial with user data included
+  // FIXED: handleFreeTrial with face reference logic
   const handleFreeTrial = async () => {
-    if (!image) {
-      setError('Please upload an image first')
+    // NEW: Check if face reference is required but image is missing
+    if (useFaceReference && !image) {
+      setError('Please upload a face reference image first')
       setNoCreditsModalOpen(false)
       return
     }
@@ -458,8 +474,8 @@ export default function Home() {
     
     if (!canUseFreeTrialToday(userData)) {
       const timeRemaining = getTimeUntilNextFreeTrial(userData)
-      if (timeRemaining) {
-        setError(`Free trial available in ${timeRemaining.hours}h ${timeRemaining.minutes}m`)
+      if (timeRemaining && timeRemaining !== "Available now") {
+        setError(`Free trial available in ${timeRemaining}`)
       } else {
         setError('Free trial not available right now')
       }
@@ -479,7 +495,8 @@ export default function Home() {
     try {
       await trackUserEvent('free_trial_used', {
         pose: advancedOptions.pose,
-        gender: advancedOptions.gender
+        gender: advancedOptions.gender,
+        useFaceReference: useFaceReference
       });
       console.log('📊 Free trial usage tracked');
     } catch (error) {
@@ -500,8 +517,20 @@ export default function Home() {
     try {
       // CRITICAL FIX: Include user data in free trial request  
       const formData = new FormData()
-      formData.append('image', image)
-      formData.append('options', JSON.stringify({ ...advancedOptions, censored: true }))
+      
+      // NEW: Only add image if face reference is enabled
+      if (useFaceReference && image) {
+        formData.append('image', image)
+      }
+      
+      // NEW: Add useFaceReference flag to options
+      const optionsWithFaceRef = {
+        ...advancedOptions,
+        useFaceReference,
+        censored: true
+      }
+      
+      formData.append('options', JSON.stringify(optionsWithFaceRef))
       formData.append('userId', userData.userId)  // ADDED
       formData.append('deviceId', userData.deviceId)  // ADDED
       
@@ -527,6 +556,7 @@ export default function Home() {
           deviceId: userData.deviceId,
           pose: advancedOptions.pose,
           gender: advancedOptions.gender,
+          useFaceReference: useFaceReference,
           success: true,
           timestamp: new Date().toISOString()
         });
@@ -550,6 +580,7 @@ export default function Home() {
           deviceId: userData.deviceId,
           pose: advancedOptions.pose,
           gender: advancedOptions.gender,
+          useFaceReference: useFaceReference,
           success: false,
           error: errorMessage,
           timestamp: new Date().toISOString()
@@ -651,37 +682,75 @@ export default function Home() {
     setConsentChecks(prev => ({ ...prev, [key]: !prev[key] }))
   }
 
-  // Buy credits handler with blocking check
+  // FIXED: Mobile-compatible buy credits with popup-first approach
   const handleBuyCredits = async (amount: number) => {
-    console.log('🔍 === handleBuyCredits called ===')
-    console.log('🔍 Amount:', amount)
-    console.log('🔍 canPurchaseCredits():', canPurchaseCredits())
+    console.log('🔍 === Nudeet handleBuyCredits called ===')
     
     if (!canPurchaseCredits()) {
-      console.log('🚫 Credits blocked in handleBuyCredits - showing blocked modal')
       setCreditsBlockedModalOpen(true)
       setBuyModalOpen(false)
       return
     }
     
-    console.log('✅ Processing credit purchase for amount:', amount)
-    addCredits(amount);
-    setCredits(prev => prev + amount);
-    setBuyModalOpen(false);
-    setError(null);
-
-    // NEW: Refresh credits after purchase
-    await refreshCredits()
-
-    // ADDED: Track credit purchase
     try {
-      await trackUserEvent('credit_purchase', {
-        amount: amount,
-        cost: amount === 3 ? 3.99 : amount === 10 ? 8.99 : 14.99
-      });
-      console.log('📊 Credit purchase tracked');
+      const userData = await loadUserData()
+      if (!userData) {
+        alert('Please wait for user data to load...')
+        return
+      }
+
+      // ⚡ CRITICAL: Open popup IMMEDIATELY before any async operations
+      const popup = window.open('', '_blank')
+      if (!popup) {
+        alert('Please allow popups for this site to complete your purchase')
+        return
+      }
+      
+      // Show loading message in popup
+      popup.document.write(`
+        <html>
+          <head><title>Processing Payment...</title></head>
+          <body style="font-family: Arial; text-align: center; padding: 50px;">
+            <h2>🔄 Setting up your payment...</h2>
+            <p>Please wait while we redirect you to the secure payment page.</p>
+          </body>
+        </html>
+      `)
+
+      // Create purchase token for webhook handling
+      const tokenResponse = await fetch('https://deeplab-ai.com/api/purchase-tokens', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: userData.userId,
+          credits: amount,
+          site: 'nudeet'
+        })
+      })
+
+      if (!tokenResponse.ok) {
+        popup.close()
+        throw new Error('Failed to create purchase token')
+      }
+
+      const { token } = await tokenResponse.json()
+      
+      // Determine Payhip product ID
+      let productId = ''
+      if (amount === 3) productId = 'IHKvU'      // 3 Credits - $3.99
+      else if (amount === 10) productId = 'VBfyi' // 10 Credits - $8.99  
+      else if (amount === 15) productId = 'o0XfZ' // 15 Credits - $10.99
+      
+      const returnUrl = `https://deeplab-ai.com/studio/success?token=${token}`
+      const payhipUrl = `https://payhip.com/b/${productId}?return_url=${encodeURIComponent(returnUrl)}`
+      
+      // Redirect the popup to Payhip
+      popup.location.href = payhipUrl
+      setBuyModalOpen(false)
+      
     } catch (error) {
-      console.error('❌ Failed to track credit purchase:', error);
+      console.error('❌ Failed to redirect to payment:', error)
+      alert('Failed to redirect to payment. Please try again.')
     }
   }
 
@@ -768,11 +837,11 @@ export default function Home() {
       <div className="flex flex-col min-h-screen">
         <div className="flex-1 p-4">
           <div className="workstation-container rounded-2xl p-8 w-full max-w-7xl mx-auto">
-            {/* ORIGINAL HEADER - Desktop Perfect, Mobile Responsive via CSS */}
+            {/* UPDATED HEADER - Changed subtitle to NSFW */}
             <div className="header-container flex items-center justify-between mb-8">
               <div className="title-section flex items-center gap-4">
                 <div className="text-3xl font-bold text-blue-400">NUDEET</div>
-                <div className="text-sm text-slate-400">AI Generation Studio</div>
+                <div className="text-sm text-slate-400">AI NSFW Generation Studio</div>
               </div>
               <div className="credits-section flex items-center gap-6">
                 <div className="credits-display flex items-center gap-3 bg-slate-800/50 px-4 py-2 rounded-full">
@@ -800,7 +869,7 @@ export default function Home() {
               </div>
             )}
             
-            {/* ORIGINAL GRID - Desktop Perfect, Mobile Responsive via CSS */}
+            {/* UPDATED GRID - Modified for new layout */}
             <div className="main-grid grid grid-cols-1 lg:grid-cols-11 gap-8">
               <div className="upload-panel lg:col-span-4">
                 <ImageUploadPanel
@@ -815,6 +884,8 @@ export default function Home() {
                   hasUploadedFirstImage={hasUploadedFirstImage}
                   uploadKey={uploadKey}
                   isLoading={isLoading}
+                  useFaceReference={useFaceReference}
+                  onUseFaceReferenceChange={setUseFaceReference}
                 />
               </div>
               
@@ -823,7 +894,7 @@ export default function Home() {
                   <GenerateButton
                     isLoading={isLoading}
                     progress={progress}
-                    disabled={!image || isLoading}
+                    disabled={(!useFaceReference || (useFaceReference && image)) && !isLoading ? false : true}
                     onGenerate={handleGenerate}
                     onLegalClick={handleLegalClick}
                   />

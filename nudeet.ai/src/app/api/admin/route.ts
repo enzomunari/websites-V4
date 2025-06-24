@@ -1,4 +1,4 @@
-// src/app/api/admin/route.ts - Centralized admin API with Queue Support - FIXED FOR UNIFIED STORAGE
+// src/app/api/admin/route.ts - Centralized admin API with Queue Support - FIXED MESSAGE DUPLICATION
 import { NextRequest, NextResponse } from 'next/server'
 import { 
   getUsers, 
@@ -92,95 +92,101 @@ interface ExtendedGenerationEvent {
   ipAddress?: string;
   promptId?: string;
   id?: string;
+  site?: string;
 }
 
-// ComfyUI Queue Management Functions
+// ComfyUI Status Check
 async function getComfyUIStatus(): Promise<string> {
   try {
     const comfyUrl = process.env.COMFY_URL || 'http://127.0.0.1:8188'
-    const response = await fetch(`${comfyUrl}/system_stats`, { 
+    console.log(`🔍 Checking ComfyUI status at: ${comfyUrl}`)
+    
+    const response = await fetch(`${comfyUrl}/system_stats`, {
       method: 'GET',
-      headers: { 'Content-Type': 'application/json' }
+      signal: AbortSignal.timeout(5000) // 5 second timeout
     })
     
     if (response.ok) {
-      // If we can reach ComfyUI, check if it's processing
-      const queueResponse = await fetch(`${comfyUrl}/queue`)
-      if (queueResponse.ok) {
-        const queueData: ComfyUIQueueResponse = await queueResponse.json()
-        const hasRunning = queueData.queue_running && queueData.queue_running.length > 0
-        return hasRunning ? 'busy' : 'idle'
-      }
+      console.log('✅ ComfyUI is online')
+      return 'online'
+    } else {
+      console.log(`⚠️ ComfyUI responded with status: ${response.status}`)
+      return 'error'
     }
-    return 'offline'
   } catch (error) {
-    console.error('Error checking ComfyUI status:', error)
+    console.log('❌ ComfyUI is offline or unreachable:', error instanceof Error ? error.message : 'Unknown error')
     return 'offline'
   }
 }
 
-async function getComfyUIQueue() {
+// ComfyUI Queue Status
+async function getComfyUIQueue(): Promise<{
+  running: TransformedQueueItem[];
+  pending: TransformedQueueItem[];
+  recentCompleted: CompletedQueueItem[];
+  totalInQueue: number;
+}> {
   try {
     const comfyUrl = process.env.COMFY_URL || 'http://127.0.0.1:8188'
     const response = await fetch(`${comfyUrl}/queue`, {
       method: 'GET',
-      headers: { 'Content-Type': 'application/json' }
+      signal: AbortSignal.timeout(5000)
     })
     
-    if (!response.ok) {
-      throw new Error(`ComfyUI queue request failed: ${response.status}`)
-    }
-    
-    const queueData: ComfyUIQueueResponse = await response.json()
-    console.log('📊 Raw ComfyUI queue data:', queueData)
-    
-    // Transform ComfyUI queue data to match our expected format
-    const running = queueData.queue_running || []
-    const pending = queueData.queue_pending || []
-    
-    // Get recent generations from our data storage for completed items
-    const recentGenerations = await getGenerations() as ExtendedGenerationEvent[]
-    const recentCompleted: CompletedQueueItem[] = recentGenerations
-      .filter(gen => gen.success !== undefined) // Filter based on success property
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-      .slice(0, 10)
-      .map(gen => ({
-        promptId: gen.promptId || gen.id || 'unknown',
-        userId: gen.userId,
-        status: gen.success ? 'completed' : 'failed', // Map success boolean to status string
-        timestamp: gen.timestamp,
-        pose: gen.pose || 'Unknown',
-        gender: gen.gender || 'Unknown'
+    if (response.ok) {
+      const queueData: ComfyUIQueueResponse = await response.json()
+      const running = queueData.queue_running || []
+      const pending = queueData.queue_pending || []
+      
+      console.log(`📊 ComfyUI Queue: ${running.length} running, ${pending.length} pending`)
+      
+      // Get recent completed generations from our database
+      const recentGenerations = await getGenerations() as ExtendedGenerationEvent[]
+      const recentCompleted: CompletedQueueItem[] = recentGenerations
+        .filter(gen => gen.success !== undefined) // Filter based on success property
+        .slice(0, 5)
+        .map(gen => ({
+          promptId: gen.promptId || gen.id || 'unknown',
+          userId: gen.userId,
+          status: gen.success ? 'completed' : 'failed', // Map success boolean to status string
+          timestamp: gen.timestamp,
+          pose: gen.pose || 'Unknown',
+          gender: gen.gender || 'Unknown'
+        }))
+      
+      // Transform running queue items
+      const runningTransformed: TransformedQueueItem[] = running.map((item, index) => ({
+        promptId: item[1]?.prompt_id || item[0] || `running_${index}`,
+        position: index + 1,
+        userId: item[1]?.extra_data?.userId || 'Unknown',
+        pose: item[1]?.extra_data?.pose || 'Unknown',
+        gender: item[1]?.extra_data?.gender || 'Unknown',
+        timestamp: new Date().toISOString(), // ComfyUI doesn't provide start time
+        progress: Math.floor(Math.random() * 40) + 30, // Estimated progress
+        estimatedTime: 45 + Math.floor(Math.random() * 30) // Estimated time remaining
       }))
-    
-    // Transform running queue items
-    const runningTransformed: TransformedQueueItem[] = running.map((item, index) => ({
-      promptId: item[1]?.prompt_id || item[0] || `running_${index}`,
-      position: index + 1,
-      userId: item[1]?.extra_data?.userId || 'Unknown',
-      pose: item[1]?.extra_data?.pose || 'Unknown',
-      gender: item[1]?.extra_data?.gender || 'Unknown',
-      timestamp: new Date().toISOString(), // ComfyUI doesn't provide start time
-      progress: Math.floor(Math.random() * 40) + 30, // Estimated progress
-      estimatedTime: 45 + Math.floor(Math.random() * 30) // Estimated time remaining
-    }))
-    
-    // Transform pending queue items
-    const pendingTransformed: TransformedQueueItem[] = pending.map((item, index) => ({
-      promptId: item[1]?.prompt_id || item[0] || `pending_${index}`,
-      position: running.length + index + 1,
-      userId: item[1]?.extra_data?.userId || 'Unknown',
-      pose: item[1]?.extra_data?.pose || 'Unknown',
-      gender: item[1]?.extra_data?.gender || 'Unknown',
-      timestamp: new Date().toISOString(),
-      estimatedTime: (running.length + index + 1) * 60 // Estimated wait time
-    }))
-    
-    return {
-      running: runningTransformed,
-      pending: pendingTransformed,
-      recentCompleted,
-      totalInQueue: running.length + pending.length
+      
+      // Transform pending queue items
+      const pendingTransformed: TransformedQueueItem[] = pending.map((item, index) => ({
+        promptId: item[1]?.prompt_id || item[0] || `pending_${index}`,
+        position: running.length + index + 1,
+        userId: item[1]?.extra_data?.userId || 'Unknown',
+        pose: item[1]?.extra_data?.pose || 'Unknown',
+        gender: item[1]?.extra_data?.gender || 'Unknown',
+        timestamp: new Date().toISOString(),
+        estimatedTime: (running.length + index + 1) * 60 // Estimated wait time
+      }))
+      
+      return {
+        running: runningTransformed,
+        pending: pendingTransformed,
+        recentCompleted,
+        totalInQueue: running.length + pending.length
+      }
+      
+    } else {
+      console.log('⚠️ Failed to fetch ComfyUI queue')
+      throw new Error('Failed to fetch queue')
     }
     
   } catch (error) {
@@ -438,11 +444,11 @@ export async function POST(request: NextRequest) {
         break
         
       case 'cleanOldData':
+        // FIXED: Remove duplicate message assignment
         const cleanupResult = await cleanOldData()
         result = {
           success: true,
-          message: 'Old data cleaned',
-          ...cleanupResult
+          ...cleanupResult  // This includes the message from cleanupResult
         }
         break
         
